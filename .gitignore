@@ -1,0 +1,7 @@
+# Generated scene images
+scifi-*.png
+
+# Build output
+/scifi-landscape
+/render
+*.test
