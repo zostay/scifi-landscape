@@ -82,31 +82,36 @@ which is what makes scenes reproducible.
 
 - **Stars** — points of light scattered over the sky (none at midday). Each has
   its own color (mostly near-white, split between blue-white and warm tints) and
-  brightness. Most are single pixels; a few are tiny discs; a rare few are discs
-  with twinkle spikes drawn at the global twinkle angle. At twilight stars cover
-  the whole scene; at dusk they fade toward the bottom via alpha. How many stars
-  appear is set by the star-density setting.
+  brightness, which ranges from faint and dim to bright. Most are single pixels;
+  a few are tiny discs; a rare few are discs with twinkle spikes drawn at the
+  global twinkle angle. At twilight stars cover the whole scene; at dusk they
+  fade toward the bottom via alpha. How many appear is set by the star-density
+  setting, which is biased toward rich, dense fields.
 
-- **System stars** — the local sun(s) of the system (only in daylight and at
-  dusk, never twilight). There are 0–5, usually 0 or 1, with higher counts much
-  rarer at dusk. Each has its own color and a size biased small (about like
-  Earth's sun) with a rare tail up to 20% of the sky width. A soft circular glow
-  brightens the sky around each before its disc is drawn (white-hot core fading
-  to the sun's color); small ones get a twinkle cross at the global angle. At
-  dusk the suns sit on or near the horizon, like a setting sun.
+- **System stars** — the local sun(s) of the system. There are 0–5, usually 0
+  or 1, with higher counts much rarer toward dusk and night. Each has its own
+  color and a size biased small (about like Earth's sun) with a rare tail up to
+  20% of the sky width. A soft circular glow brightens the sky around each
+  before its disc is drawn (white-hot core fading to the sun's color); small
+  ones get a twinkle cross at the global angle. At dusk the suns sit on or near
+  the horizon, like a setting sun; at twilight a few small, dim suns may appear,
+  scattered in the night sky like faint distant stars.
 
 - **Planets** — planets in the sky, in front of the stars and suns but behind
   the ground (so one near the horizon is occluded by the terrain). A scene has a
   ~75% chance of any planets; when present the count is usually a few but can run
   up to 20, with multiples common. Sizes range from a few-pixel dot to half the
-  scene width (biased small). Each planet has a type; the first is the **gas
+  scene width (biased small), though the first planet is often a dominant world
+  filling 20–50% of the sky. Each planet has a type; the first is the **gas
   giant** — turbulent latitudinal color bands on a limb-shaded sphere, with
   palettes from similar hues (Neptune-like), to moderately variable
   (Jupiter-like), to fantastic. Each planet's bands are tilted: the global star
-  angle plus a per-planet rotation of up to 90°. Planets also fade toward the
-  sky color near the horizon (atmospheric haze) in daylight and dusk — so low
-  planets blend into the sky while still hiding the stars and suns behind them,
-  and the sky itself is never dimmed.
+  angle plus a per-planet rotation of up to 90° (biased small, so planets stay
+  fairly aligned). Planets also fade toward the sky color near the horizon
+  (atmospheric haze) — strongly at dusk and, in daylight, fading to basically
+  nothing before reaching the horizon — so low planets blend into the sky while
+  still hiding the stars and suns behind them, and the sky itself is never
+  dimmed. (At twilight there is no haze, so planets stay crisp.)
 
 - **Ground** — the base terrain below the horizon, always drawn (drawn last, so
   the suns and planets set behind it). Any color, in one of two modes:

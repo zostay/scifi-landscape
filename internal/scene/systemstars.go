@@ -23,12 +23,18 @@ func (s *SystemStars) Name() string { return "system stars" }
 const (
 	sysAnimPerStar = 180 * time.Millisecond
 
-	sysMaxCount    = 5
-	sysSigmaMidday = 1.35 // |normal|*sigma, rounded -> count; ~27% chance of 2+ suns
-	sysSigmaDusk   = 0.67 // smaller at dusk so multiple suns stay much rarer
+	sysMaxCount      = 5
+	sysSigmaMidday   = 1.35 // |normal|*sigma, rounded -> count; ~27% chance of 2+ suns
+	sysSigmaDusk     = 0.67 // smaller at dusk so multiple suns stay much rarer
+	sysSigmaTwilight = 0.50 // night: the system's sun(s) appear small and dim, if at all
 
-	sysMinFrac = 0.010 // smallest sun diameter as a fraction of sky width
-	sysMaxFrac = 0.20  // largest sun diameter (20% of the sky width)
+	sysMinFrac         = 0.010 // smallest sun diameter as a fraction of sky width
+	sysMaxFrac         = 0.20  // largest sun diameter (20% of the sky width)
+	sysTwilightMaxFrac = 0.030 // night suns are small
+
+	// Night suns are dim: brightness scales their glow and disc.
+	sysDimMin = 0.30
+	sysDimMax = 0.55
 
 	sysPlusFrac   = 0.025 // suns smaller than this get a twinkle cross
 	sysGlowMul    = 6.0   // glow extends to this multiple of the disc radius
@@ -44,13 +50,10 @@ type sun struct {
 	r      int     // disc radius in pixels
 	col    gfx.RGB // base (edge) color; the core is whiter
 	plus   bool    // draw a twinkle cross
+	bright float64 // scales glow and disc; <1 for dim night suns
 }
 
 func (s *SystemStars) Render(c *Context) error {
-	if c.Settings.Time == Twilight {
-		return nil // the system's suns are only up in daylight / at dusk
-	}
-
 	n := systemStarCount(c.Rng, c.Settings.Time)
 	if n == 0 {
 		return nil
@@ -80,23 +83,35 @@ func (s *SystemStars) Render(c *Context) error {
 }
 
 // systemStarCount draws the number of suns: |normal|*sigma rounded and clamped
-// to [0, 5]. The smaller dusk sigma pushes the distribution down so multiple
-// suns are much less likely at dusk than in daylight.
+// to [0, 5]. Sigma falls from daylight to dusk to twilight, so multiple suns
+// get progressively rarer; at twilight the few that appear are small and dim.
 func systemStarCount(rng *rand.Rand, t TimeOfDay) int {
 	sigma := sysSigmaMidday
-	if t == Dusk {
+	switch t {
+	case Dusk:
 		sigma = sysSigmaDusk
+	case Twilight:
+		sigma = sysSigmaTwilight
 	}
 	n := int(math.Round(math.Abs(rng.NormFloat64()) * sigma))
 	return min(max(n, 0), sysMaxCount)
 }
 
-// makeSun resolves one sun's size, color, and position. Size is biased small
-// (most look about like Earth's sun) with a long tail to 20% of the sky width.
+// makeSun resolves one sun's size, color, position, and brightness. Size is
+// biased small (most look about like Earth's sun) with a long tail to 20% of
+// the sky width. At twilight the sun is small and dim, scattered in the night
+// sky like a faint distant star.
 func makeSun(rng *rand.Rand, w, h int, set Settings) sun {
-	// t in [0,1], biased toward 0; squared so most suns are small.
-	t := math.Min(math.Abs(rng.NormFloat64())/3, 1)
-	frac := sysMinFrac + (sysMaxFrac-sysMinFrac)*t*t
+	var frac, bright float64
+	if set.Time == Twilight {
+		frac = rnd(rng, sysMinFrac, sysTwilightMaxFrac)
+		bright = rnd(rng, sysDimMin, sysDimMax)
+	} else {
+		// t in [0,1], biased toward 0; squared so most suns are small.
+		t := math.Min(math.Abs(rng.NormFloat64())/3, 1)
+		frac = sysMinFrac + (sysMaxFrac-sysMinFrac)*t*t
+		bright = 1.0
+	}
 	r := max(int(frac*float64(w)/2), 2)
 
 	col := gfx.HSV{H: rng.Float64() * 360, S: rnd(rng, 0.25, 0.8), V: 1.0}.RGB()
@@ -113,7 +128,7 @@ func makeSun(rng *rand.Rand, w, h int, set Settings) sun {
 		cy = top + rng.Intn(bot-top)
 	}
 
-	return sun{cx: cx, cy: cy, r: r, col: col, plus: frac < sysPlusFrac}
+	return sun{cx: cx, cy: cy, r: r, col: col, plus: frac < sysPlusFrac, bright: bright}
 }
 
 // drawGlow adds a soft radial brightening of the sun's color around the disc.
@@ -129,7 +144,7 @@ func drawGlow(img *image.RGBA, w, h int, s sun) {
 				continue
 			}
 			// Gentle falloff (exponent < 2) so the glow spreads wide.
-			inten := math.Pow(1-d, 1.5) * sysGlowPeak
+			inten := math.Pow(1-d, 1.5) * sysGlowPeak * s.bright
 			addPixel(img, w, h, s.cx+ox, s.cy+oy, s.col, inten)
 		}
 	}
@@ -140,10 +155,13 @@ func drawGlow(img *image.RGBA, w, h int, s sun) {
 // quick fade at the very edge. Suns read as uniformly blinding, not centrally
 // bright.
 func drawSunDisc(img *image.RGBA, w, h int, s sun) {
+	// Lift toward white (less so when dim), then scale the whole disc by
+	// brightness so night suns are dim.
+	lift := sysCoreWhite * s.bright
 	fill := gfx.RGB{
-		R: s.col.R + (1-s.col.R)*sysCoreWhite,
-		G: s.col.G + (1-s.col.G)*sysCoreWhite,
-		B: s.col.B + (1-s.col.B)*sysCoreWhite,
+		R: (s.col.R + (1-s.col.R)*lift) * s.bright,
+		G: (s.col.G + (1-s.col.G)*lift) * s.bright,
+		B: (s.col.B + (1-s.col.B)*lift) * s.bright,
 	}
 	r2 := s.r * s.r
 	for oy := -s.r; oy <= s.r; oy++ {
@@ -165,7 +183,7 @@ func drawSunDisc(img *image.RGBA, w, h int, s sun) {
 func drawSunSpikes(img *image.RGBA, w, h int, s sun, dx, dy float64) {
 	end := s.r + s.r + sysSpikePadPx
 	for t := s.r; t <= end; t++ {
-		a := 0.85 * (1 - float64(t-s.r)/float64(end-s.r+1))
+		a := 0.85 * s.bright * (1 - float64(t-s.r)/float64(end-s.r+1))
 		fx, fy := dx*float64(t), dy*float64(t)
 		px, py := -dy*float64(t), dx*float64(t)
 		blendPixel(img, w, h, s.cx+round(fx), s.cy+round(fy), s.col, a)

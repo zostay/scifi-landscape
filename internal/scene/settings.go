@@ -65,11 +65,11 @@ const (
 // Star density: a multiplier on the "earthlike" star count, drawn log-normally.
 // densityStd scales a normal in log space; densityBias shifts its mean up so
 // richer-than-earthlike skies are the norm (the typical multiplier is
-// exp(densityBias*densityStd) ≈ 1.7×); densityClamp bounds the exponent so the
+// exp(densityBias*densityStd) ≈ 2.3×); densityClamp bounds the exponent so the
 // tails still reach a near-empty sky or a dense cluster without going absurd.
 const (
 	densityStd   = 0.9
-	densityBias  = 0.6
+	densityBias  = 0.95 // typical ~2.3x earthlike; denser fields are common
 	densityClamp = 3.0
 )
 

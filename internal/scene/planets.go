@@ -26,20 +26,29 @@ const (
 	planetMax       = 20
 
 	// Per-planet band rotation, added to the global star angle. Biased toward
-	// little rotation, but high rotation is common, up to 90 degrees more.
-	planetRotStd = 55.0
+	// little rotation (planets stay fairly aligned) but still allowed to vary,
+	// up to 90 degrees more.
+	planetRotStd = 30.0
 
-	// Atmospheric haze: planets blend toward the sky color toward the horizon in
-	// daylight/dusk (and barely at twilight), so low planets fade into the sky.
+	// Atmospheric haze: planets blend toward the sky color toward the horizon.
+	// Values >1 (clamped) make planets fade out fully before reaching the
+	// horizon: in daylight to basically nothing, strongly at dusk, none at
+	// twilight (clear dark sky).
 	planetHazePow      = 2.0
-	planetHazeMidday   = 0.85
-	planetHazeDusk     = 0.72
+	planetHazeMidday   = 1.7
+	planetHazeDusk     = 1.2
 	planetHazeTwilight = 0.0
 
 	// Disc size as a fraction of scene width, biased small (squared) with a
 	// rare tail up to half the scene width.
 	planetMinFrac = 0.004
 	planetMaxFrac = 0.50
+
+	// When a scene has planets, the first one is often a dominant world filling
+	// 20-50% of the sky width.
+	planetBigFirstChance = 0.65
+	planetBigMinFrac     = 0.20
+	planetBigMaxFrac     = 0.50
 
 	// Gas-giant bands.
 	planetBandsMin     = 6
@@ -79,7 +88,7 @@ func (p *Planets) Render(c *Context) error {
 	w, h := c.W, c.H
 	planets := make([]planet, n)
 	for i := range planets {
-		planets[i] = makePlanet(c.Rng, w, c.Settings)
+		planets[i] = makePlanet(c.Rng, w, c.Settings, i == 0)
 	}
 
 	// Precompute, per row, the sky color planets blend toward and how much
@@ -90,7 +99,9 @@ func (p *Planets) Render(c *Context) error {
 	hazeRow := make([]float64, h)
 	for y := range h {
 		skyRow[y] = skyColorAt(c.SkyGradient, y, horizon, h).RGB()
-		hazeRow[y] = th * math.Pow(math.Min(float64(y)/float64(horizon), 1), planetHazePow)
+		// >1 values (from a strong time-of-day haze) clamp to full fade, so
+		// planets vanish into the sky before reaching the horizon.
+		hazeRow[y] = math.Min(th*math.Pow(math.Min(float64(y)/float64(horizon), 1), planetHazePow), 1)
 	}
 
 	per := planetsAnimDuration / time.Duration(n)
@@ -135,10 +146,16 @@ func planetCount(rng *rand.Rand) int {
 
 // makePlanet resolves a planet's type, size, position, and look. Planets sit in
 // the sky (between the top and the horizon); large ones may dip toward the
-// horizon and be partly occluded by the later ground layer.
-func makePlanet(rng *rand.Rand, w int, set Settings) planet {
-	t := math.Min(math.Abs(rng.NormFloat64())/3, 1)
-	frac := planetMinFrac + (planetMaxFrac-planetMinFrac)*t*t
+// horizon and be partly occluded by the later ground layer. When isFirst is set
+// the planet is often a dominant world filling 20-50% of the sky width.
+func makePlanet(rng *rand.Rand, w int, set Settings, isFirst bool) planet {
+	var frac float64
+	if isFirst && rng.Float64() < planetBigFirstChance {
+		frac = rnd(rng, planetBigMinFrac, planetBigMaxFrac)
+	} else {
+		t := math.Min(math.Abs(rng.NormFloat64())/3, 1)
+		frac = planetMinFrac + (planetMaxFrac-planetMinFrac)*t*t
+	}
 	r := max(int(frac*float64(w)/2), 2)
 
 	// Band tilt: the global star angle plus a per-planet offset of up to 90

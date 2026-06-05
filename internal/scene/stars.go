@@ -82,8 +82,9 @@ func (s *Stars) generate(rng *rand.Rand, w, h int, set Settings) []star {
 		x := rng.Intn(w)
 		y := rng.Intn(h)
 
-		// Brightness biased dim (most stars faint, a few bright).
-		bright := 0.25 + 0.75*math.Pow(rng.Float64(), 1.7)
+		// Brightness biased dim (most stars faint, a few bright). The low floor
+		// allows small, dim stars at night.
+		bright := 0.06 + 0.94*math.Pow(rng.Float64(), 1.9)
 
 		// Dusk fades stars toward the bottom; twilight is uniform.
 		fade := 1.0
