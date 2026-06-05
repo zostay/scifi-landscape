@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"math"
 	"math/rand"
 	"strings"
 )
@@ -53,6 +54,23 @@ const (
 	horizonStd  = 0.06
 )
 
+// Twinkle angle: the orientation of star twinkle spikes, shared by every star
+// in a scene. It runs 0-90 degrees, biased hard toward 0 (upright spikes), with
+// 90 the rarest. twinkleStd scales |normal|, so 90 sits ~3.75 sigma out.
+const (
+	twinkleMax = 90.0
+	twinkleStd = 24.0
+)
+
+// Star density: a multiplier on the "earthlike" star count, drawn log-normally
+// so 1.0 (earthlike) is most common and the tails reach a near-empty sky or a
+// dense cluster. densityStd scales a normal in log space; densityClamp bounds
+// the exponent so the count stays sane.
+const (
+	densityStd   = 0.9
+	densityClamp = 3.0
+)
+
 // Settings holds the global, scene-wide choices made up front. Every value is
 // derived from the seed (via rng) unless explicitly overridden.
 type Settings struct {
@@ -64,6 +82,13 @@ type Settings struct {
 	// HorizonY is the horizon's pixel row from the top of the image. Because
 	// Horizon is measured from the bottom, HorizonY = height * (1 - Horizon).
 	HorizonY int
+
+	// TwinkleAngle is the shared orientation of star twinkle spikes, in degrees
+	// [0, 90].
+	TwinkleAngle float64
+	// StarDensity multiplies the earthlike star count: ~1.0 is earthlike, well
+	// below 1 is a near-empty sky, well above 1 is a dense cluster.
+	StarDensity float64
 }
 
 // NewSettings derives the global settings from rng for a scene of height h.
@@ -83,6 +108,12 @@ func NewSettings(rng *rand.Rand, timeOverride string, h int) Settings {
 		frac = horizonMax
 	}
 
+	// Twinkle angle: |normal| biased to 0, clamped to 90.
+	twinkle := min(math.Abs(rng.NormFloat64())*twinkleStd, twinkleMax)
+
+	// Star density: log-normal around 1.0 (earthlike).
+	density := math.Exp(min(max(rng.NormFloat64(), -densityClamp), densityClamp) * densityStd)
+
 	if override, ok := ParseTimeOfDay(timeOverride); ok {
 		tod = override
 	}
@@ -91,8 +122,10 @@ func NewSettings(rng *rand.Rand, timeOverride string, h int) Settings {
 	y := min(max(int((1-frac)*float64(h)), 1), h-1)
 
 	return Settings{
-		Time:     tod,
-		Horizon:  frac,
-		HorizonY: y,
+		Time:         tod,
+		Horizon:      frac,
+		HorizonY:     y,
+		TwinkleAngle: twinkle,
+		StarDensity:  density,
 	}
 }

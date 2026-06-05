@@ -1,9 +1,12 @@
 package scene
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 )
+
+var exp = math.Exp
 
 func TestNewSettingsHorizonInRange(t *testing.T) {
 	for seed := range int64(2000) {
@@ -14,6 +17,21 @@ func TestNewSettingsHorizonInRange(t *testing.T) {
 		}
 		if s.HorizonY < 1 || s.HorizonY > 719 {
 			t.Fatalf("seed %d: HorizonY %d out of bounds", seed, s.HorizonY)
+		}
+	}
+}
+
+func TestNewSettingsStarParamsInRange(t *testing.T) {
+	for seed := range int64(2000) {
+		s := NewSettings(rand.New(rand.NewSource(seed)), "", 720)
+		if s.TwinkleAngle < 0 || s.TwinkleAngle > twinkleMax {
+			t.Fatalf("seed %d: twinkle %.2f out of [0,%.0f]", seed, s.TwinkleAngle, twinkleMax)
+		}
+		// Density is log-normal with the exponent clamped to ±densityClamp.
+		lo := exp(-densityClamp * densityStd)
+		hi := exp(densityClamp * densityStd)
+		if s.StarDensity < lo-1e-9 || s.StarDensity > hi+1e-9 {
+			t.Fatalf("seed %d: density %.3f out of [%.3f,%.3f]", seed, s.StarDensity, lo, hi)
 		}
 	}
 }

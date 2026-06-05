@@ -11,11 +11,13 @@ import (
 
 // Status is an immutable snapshot of the current generation, read by the UI.
 type Status struct {
-	Seed    int64
-	Time    scene.TimeOfDay
-	Horizon float64
-	Current string // element being rendered, or "" when idle
-	Done    bool
+	Seed         int64
+	Time         scene.TimeOfDay
+	Horizon      float64
+	TwinkleAngle float64
+	StarDensity  float64
+	Current      string // element being rendered, or "" when idle
+	Done         bool
 }
 
 // Controller owns the canvas and the background goroutine that builds a scene.
@@ -89,6 +91,8 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 	c.mu.Lock()
 	c.status.Time = settings.Time
 	c.status.Horizon = settings.Horizon
+	c.status.TwinkleAngle = settings.TwinkleAngle
+	c.status.StarDensity = settings.StarDensity
 	c.mu.Unlock()
 
 	c.canvas.Clear(blackRGBA)

@@ -59,6 +59,11 @@ which is what makes scenes reproducible.
   the bottom* (the ground's share), normally distributed around ~35%. So the
   sky always fills 50–80% of the scene — there's never more ground than sky.
   The sky gradient is anchored at this line.
+- **Twinkle angle** — the shared orientation of star twinkle spikes, 0–90°,
+  biased hard toward 0° (90° is rarest). Every twinkling star uses this angle.
+- **Star density** — a log-normal multiplier on the earthlike star count, so
+  ~1× (earthlike) is most common, ranging from a near-empty sky to a dense
+  cluster.
 
 ### Elements (so far)
 
@@ -75,6 +80,13 @@ which is what makes scenes reproducible.
   Below the horizon the sky is mirrored and dimmed, ready to be reused as a
   water reflection by a later element (otherwise it is overwritten).
 
+- **Stars** — points of light scattered over the sky (none at midday). Each has
+  its own color (mostly near-white, split between blue-white and warm tints) and
+  brightness. Most are single pixels; a few are tiny discs; a rare few are discs
+  with twinkle spikes drawn at the global twinkle angle. At twilight stars cover
+  the whole scene; at dusk they fade toward the bottom via alpha. How many stars
+  appear is set by the star-density setting.
+
 ## Code layout
 
 ```
@@ -83,7 +95,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky element
+internal/scene/      settings, the Element interface, the Sky and Stars elements
 internal/app/        Ebiten front-end + generation controller
 ```
 

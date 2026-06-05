@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
+	"github.com/zostay/scifi-landscape/internal/scene"
 	"github.com/zostay/scifi-landscape/internal/seed"
 )
 
@@ -155,9 +156,14 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	}
 	lines := []string{
 		fmt.Sprintf("seed %d   %s   horizon %.0f%%", st.Seed, st.Time, st.Horizon*100),
+	}
+	if st.Time != scene.Midday {
+		lines = append(lines, fmt.Sprintf("stars: density %.2fx   twinkle %.0f°", st.StarDensity, st.TwinkleAngle))
+	}
+	lines = append(lines,
 		state,
 		"[N]ew  [R]eplay  [E]nter seed  [S]ave PNG  [Q]uit",
-	}
+	)
 	switch {
 	case g.editing:
 		lines = append(lines, fmt.Sprintf("seed> %s_   [Enter] apply  [Esc] cancel", g.input))
