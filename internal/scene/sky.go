@@ -21,7 +21,7 @@ func (s *Sky) Name() string { return "sky" }
 const skyAnimDuration = 1100 * time.Millisecond
 
 func (s *Sky) Render(c *Context) error {
-	grad := buildSkyGradient(c.Rng, c.Settings.Time)
+	grad := c.SkyGradient
 
 	w, h := c.W, c.H
 	horizon := c.Settings.HorizonY
@@ -29,19 +29,7 @@ func (s *Sky) Render(c *Context) error {
 	// Precompute one color per row: the sky is uniform horizontally.
 	rows := make([]gfx.RGB, h)
 	for y := range h {
-		var col gfx.HSV
-		if y <= horizon {
-			// 0 at the horizon, 1 at the top of the scene.
-			pos := float64(horizon-y) / float64(horizon)
-			col = grad.At(pos)
-		} else {
-			// Mirror the gradient downward and dim it for a reflection.
-			mirror := float64(y-horizon) / float64(h-horizon)
-			col = grad.At(mirror)
-			col.V *= 0.55
-			col.S *= 0.9
-		}
-		rows[y] = col.RGB()
+		rows[y] = skyColorAt(grad, y, horizon, h).RGB()
 	}
 
 	// Wipe the gradient in top-to-bottom in bands so the build is visible.
@@ -72,6 +60,21 @@ func (s *Sky) Render(c *Context) error {
 		}
 	}
 	return nil
+}
+
+// skyColorAt returns the sky color at row y for a scene of height h with the
+// horizon at row horizon. Above the horizon it samples the gradient (0 at the
+// horizon, 1 at the top); below it mirrors and dims the gradient for a
+// reflection. This is shared by the sky element and any element that needs to
+// blend toward the sky color (e.g. planet atmospheric haze).
+func skyColorAt(grad gfx.Gradient, y, horizon, h int) gfx.HSV {
+	if y <= horizon {
+		return grad.At(float64(horizon-y) / float64(horizon))
+	}
+	col := grad.At(float64(y-horizon) / float64(h-horizon))
+	col.V *= 0.55
+	col.S *= 0.9
+	return col
 }
 
 // buildSkyGradient produces the horizon->top color stops for the given time of

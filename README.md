@@ -95,8 +95,21 @@ which is what makes scenes reproducible.
   to the sun's color); small ones get a twinkle cross at the global angle. At
   dusk the suns sit on or near the horizon, like a setting sun.
 
+- **Planets** — planets in the sky, in front of the stars and suns but behind
+  the ground (so one near the horizon is occluded by the terrain). A scene has a
+  ~75% chance of any planets; when present the count is usually a few but can run
+  up to 20, with multiples common. Sizes range from a few-pixel dot to half the
+  scene width (biased small). Each planet has a type; the first is the **gas
+  giant** — turbulent latitudinal color bands on a limb-shaded sphere, with
+  palettes from similar hues (Neptune-like), to moderately variable
+  (Jupiter-like), to fantastic. Each planet's bands are tilted: the global star
+  angle plus a per-planet rotation of up to 90°. Planets also fade toward the
+  sky color near the horizon (atmospheric haze) in daylight and dusk — so low
+  planets blend into the sky while still hiding the stars and suns behind them,
+  and the sky itself is never dimmed.
+
 - **Ground** — the base terrain below the horizon, always drawn (drawn last, so
-  the suns set behind it). Any color, in one of two modes:
+  the suns and planets set behind it). Any color, in one of two modes:
   - *Normal*: one base hue, roughly uniform, with light/dark and saturation
     variation — hazier/lighter at the distant horizon, darker/more saturated in
     the foreground.
@@ -119,7 +132,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Ground elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Ground elements
 internal/app/        Ebiten front-end + generation controller
 ```
 

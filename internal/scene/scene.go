@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zostay/scifi-landscape/internal/canvas"
+	"github.com/zostay/scifi-landscape/internal/gfx"
 )
 
 // Context carries everything an element needs to render itself. The same
@@ -23,6 +24,11 @@ type Context struct {
 	Rng      *rand.Rand
 	Settings Settings
 	W, H     int
+
+	// SkyGradient is the scene's sky color gradient (horizon -> top), built once
+	// up front so elements other than the sky (e.g. planets fading into the sky
+	// near the horizon) can sample the same colors the sky was drawn with.
+	SkyGradient gfx.Gradient
 }
 
 // Element is one piece of a scene (sky, ground, structures, ...). Render draws
@@ -49,6 +55,7 @@ func New(s Settings) *Scene {
 			&Sky{},
 			&Stars{},
 			&SystemStars{},
+			&Planets{},
 			&Ground{},
 		},
 	}
@@ -70,6 +77,10 @@ func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, rng *rand.Rand, w
 		W:        w,
 		H:        h,
 	}
+	// Build the sky gradient up front (same point in the rng stream where the
+	// sky element used to build it) so every element shares the same sky colors.
+	sctx.SkyGradient = buildSkyGradient(rng, sc.Settings.Time)
+
 	for _, el := range sc.Elements {
 		if onElement != nil {
 			onElement(el.Name())
