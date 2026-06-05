@@ -4,6 +4,8 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+
+	"github.com/zostay/scifi-landscape/internal/gfx"
 )
 
 // TimeOfDay is a global scene setting that drives how every element is colored.
@@ -91,6 +93,19 @@ type Settings struct {
 	// StarDensity multiplies the earthlike star count: ~1.0 is earthlike, well
 	// below 1 is a near-empty sky, well above 1 is a dense cluster.
 	StarDensity float64
+
+	// Dominant-star lighting for planets. The light's screen angle is the same
+	// TwinkleAngle above.
+	//
+	// LightColor tints the lit side of planets. LightBrightness is the
+	// terminator harshness: high makes a sharp shadow line, low a soft fade.
+	// LightPhase is how much of the planets is lit: 1 is full (fully sunlit), 0
+	// is new (visible only by ambient light). LightAmbient is fill light in the
+	// shadowed part: 0 leaves shadows black, higher keeps features visible.
+	LightColor      gfx.RGB
+	LightBrightness float64
+	LightPhase      float64
+	LightAmbient    float64
 }
 
 // NewSettings derives the global settings from rng for a scene of height h.
@@ -117,6 +132,16 @@ func NewSettings(rng *rand.Rand, timeOverride string, h int) Settings {
 	// the norm; still clamped so the tails stay sane.
 	density := math.Exp(min(max(rng.NormFloat64()+densityBias, -densityClamp), densityClamp) * densityStd)
 
+	// Dominant-star lighting. Color is a near-white tint (full value, low
+	// saturation). Phase biased toward full so planets are usually well lit, but
+	// reaches new. Ambient biased low so shadows are usually dark.
+	lightColor := gfx.HSV{H: rng.Float64() * 360, S: rnd(rng, 0, 0.35), V: 1}.RGB()
+	lightBright := rnd(rng, 0.40, 1.0)
+	lightPhase := math.Sqrt(rng.Float64())
+	// Ambient biased low (squared) so shadows usually fall dark, with the
+	// occasional brighter fill.
+	lightAmbient := 0.02 + 0.38*math.Pow(rng.Float64(), 2)
+
 	if override, ok := ParseTimeOfDay(timeOverride); ok {
 		tod = override
 	}
@@ -125,10 +150,14 @@ func NewSettings(rng *rand.Rand, timeOverride string, h int) Settings {
 	y := min(max(int((1-frac)*float64(h)), 1), h-1)
 
 	return Settings{
-		Time:         tod,
-		Horizon:      frac,
-		HorizonY:     y,
-		TwinkleAngle: twinkle,
-		StarDensity:  density,
+		Time:            tod,
+		Horizon:         frac,
+		HorizonY:        y,
+		TwinkleAngle:    twinkle,
+		StarDensity:     density,
+		LightColor:      lightColor,
+		LightBrightness: lightBright,
+		LightPhase:      lightPhase,
+		LightAmbient:    lightAmbient,
 	}
 }

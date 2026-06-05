@@ -58,7 +58,50 @@ const (
 	planetTurbScaleLat = 8.0  // turbulence cells top-to-bottom
 	planetTurbMin      = 0.04 // band waviness (fraction of latitude)
 	planetTurbMax      = 0.14
-	planetLimbMin      = 0.42 // brightness at the limb vs the center (sphere shading)
+
+	// Moons (airless, rocky). A mottled base, washed-out/gray-leaning colors,
+	// optional lighter poles, and elliptical impact craters if large enough.
+	moonChance      = 0.50 // share of planets that are moons rather than gas giants
+	moonMottleScale = 3.5  // surface mottle cells across the disc
+	moonMottleMin   = 0.25 // value mottle amplitude
+	moonMottleMax   = 0.60
+	moonPoleChance  = 0.60 // chance a moon has lighter poles
+	moonPoleStart   = 0.60 // latitude (|.|) where polar lightening begins
+	moonPoleMin     = 0.15
+	moonPoleMax     = 0.45
+
+	// Surface variation layers (beyond the fine mottle): big dark "maria" lava
+	// patches (the man-in-the-moon look), and recolored patches (ice fields or
+	// dusty regions of a different hue).
+	moonMariaChance  = 0.65 // chance a moon has dark maria patches
+	moonMariaScale   = 1.6  // big, low-frequency patches
+	moonMariaDarkLo  = 0.25
+	moonMariaDarkHi  = 0.55
+	moonPatchChance  = 0.60 // chance a moon has recolored (ice/dusty) patches
+	moonPatchScale   = 2.6  // medium patches
+	moonPatchBlendLo = 0.40
+	moonPatchBlendHi = 0.80
+
+	moonCraterMinR   = 16   // smallest radius (px) that gets craters
+	moonCraterMax    = 40   // cap on crater count
+	moonCraterMinSz  = 0.05 // on-sphere crater radius as a fraction of the disc radius
+	moonCraterMaxSz  = 0.34
+	moonCraterMinFor = 0.20 // floor on the foreshortening so limb craters aren't slivers
+
+	moonCraterFloor  = 0.28 // how much the flat interior floor darkens (shallow)
+	moonCraterRelief = 0.55 // wall directional shading (gentle: shallow crater)
+	moonCraterLip    = 0.50 // thin-rim highlight/shadow strength
+	moonCraterJagAmp = 0.18 // roughening of the rim (fraction of crater radius)
+	moonCraterJagScl = 7.0  // jagged-edge noise frequency across the disc
+
+	// The rim lip and the inner highlight/shadow wall are both measured in
+	// pixels (not crater radii), so they stay microscopic rings even on a big,
+	// close planet — barely growing with the radius. The flat interior between
+	// them makes craters read as vast and shallow, never deep.
+	moonLipBasePx  = 0.8
+	moonLipGrowPx  = 0.0015
+	moonWallBasePx = 1.0
+	moonWallGrowPx = 0.0015
 )
 
 // PlanetType selects how a planet is rendered.
@@ -66,17 +109,42 @@ type PlanetType int
 
 const (
 	GasGiant PlanetType = iota
+	Moon
 )
 
-// planet is one resolved planet.
+// crater is one impact crater. It is a circle on the sphere; projected to the
+// disc (coords span [-1,1]) it becomes an ellipse foreshortened along the radial
+// direction (rx,ry) — circular at the disc center, increasingly elongated along
+// the tangent toward the limb.
+type crater struct {
+	cx, cy float64 // center, disc-normalized
+	size   float64 // on-sphere (tangential) radius
+	radial float64 // foreshortened radial semi-axis (size * foreshortening)
+	rx, ry float64 // unit radial direction (disc center -> crater center)
+	seed   int     // jagged-edge noise seed
+}
+
+// planet is one resolved planet. Some fields are type-specific: bands is for
+// gas giants; base, poleLight, and craters are for moons.
 type planet struct {
 	cx, cy   int
 	r        int
 	typ      PlanetType
-	bands    gfx.Gradient // latitude (0=top, 1=bottom) -> color
-	turbSeed int
-	turbAmp  float64
-	rotation float64 // band tilt in radians
+	rotation float64 // surface tilt in radians (bands / pole axis)
+	turbSeed int     // surface noise seed
+	turbAmp  float64 // surface noise amplitude (band warp / moon mottle)
+
+	bands gfx.Gradient // gas giant: latitude (0=top, 1=bottom) -> color
+
+	base      gfx.HSV  // moon: base surface color
+	poleLight float64  // moon: polar lightening (0 = none)
+	craters   []crater // moon: impact craters
+
+	mariaThresh float64 // moon: dark-patch noise threshold
+	mariaDark   float64 // moon: dark-patch darkening (0 = no maria)
+	patchThresh float64 // moon: recolor-patch noise threshold
+	patchBlend  float64 // moon: recolor-patch blend amount (0 = none)
+	patchColor  gfx.HSV // moon: recolor-patch color (ice / dusty hue)
 }
 
 func (p *Planets) Render(c *Context) error {
@@ -104,6 +172,8 @@ func (p *Planets) Render(c *Context) error {
 		hazeRow[y] = math.Min(th*math.Pow(math.Min(float64(y)/float64(horizon), 1), planetHazePow), 1)
 	}
 
+	lm := newLightModel(c.Settings)
+
 	per := planetsAnimDuration / time.Duration(n)
 	for i := range planets {
 		if err := c.Ctx.Err(); err != nil {
@@ -111,7 +181,7 @@ func (p *Planets) Render(c *Context) error {
 		}
 		pl := planets[i]
 		c.Canvas.Draw(func(img *image.RGBA) {
-			drawPlanet(img, w, h, pl, skyRow, hazeRow)
+			drawPlanet(img, w, h, pl, skyRow, hazeRow, lm)
 		})
 		if err := sleep(c.Ctx, per); err != nil {
 			return err
@@ -158,21 +228,118 @@ func makePlanet(rng *rand.Rand, w int, set Settings, isFirst bool) planet {
 	}
 	r := max(int(frac*float64(w)/2), 2)
 
-	// Band tilt: the global star angle plus a per-planet offset of up to 90
-	// degrees, biased low but with high rotations common.
+	typ := GasGiant
+	if rng.Float64() < moonChance {
+		typ = Moon
+	}
+
+	// Surface tilt: the global star angle plus a per-planet offset of up to 90
+	// degrees, biased low so planets stay fairly aligned.
 	delta := math.Min(math.Abs(rng.NormFloat64())*planetRotStd, 90)
 	rotation := (set.TwinkleAngle + delta) * math.Pi / 180
 
-	return planet{
+	p := planet{
 		cx:       rng.Intn(w),
 		cy:       rng.Intn(set.HorizonY + 1),
 		r:        r,
-		typ:      GasGiant,
-		bands:    buildGasGiantBands(rng),
-		turbSeed: rng.Int(),
-		turbAmp:  rnd(rng, planetTurbMin, planetTurbMax),
+		typ:      typ,
 		rotation: rotation,
+		turbSeed: rng.Int(),
 	}
+	switch typ {
+	case GasGiant:
+		p.bands = buildGasGiantBands(rng)
+		p.turbAmp = rnd(rng, planetTurbMin, planetTurbMax)
+	case Moon:
+		p.base = moonBaseColor(rng)
+		p.turbAmp = rnd(rng, moonMottleMin, moonMottleMax)
+		if rng.Float64() < moonPoleChance {
+			p.poleLight = rnd(rng, moonPoleMin, moonPoleMax)
+		}
+		if rng.Float64() < moonMariaChance {
+			p.mariaThresh = rnd(rng, 0.45, 0.62)
+			p.mariaDark = rnd(rng, moonMariaDarkLo, moonMariaDarkHi)
+		}
+		if rng.Float64() < moonPatchChance {
+			p.patchThresh = rnd(rng, 0.50, 0.66)
+			p.patchBlend = rnd(rng, moonPatchBlendLo, moonPatchBlendHi)
+			p.patchColor = moonPatchColor(rng, p.base)
+		}
+		p.craters = makeCraters(rng, r)
+	}
+	return p
+}
+
+// moonBaseColor picks a moon's base surface color: any hue, but biased toward
+// gray and washed-out dusty tones (low saturation).
+func moonBaseColor(rng *rand.Rand) gfx.HSV {
+	s := rng.Float64()
+	return gfx.HSV{
+		H: rng.Float64() * 360,
+		S: s * s * 0.35, // squared -> mostly near-gray, occasionally dusty
+		V: rnd(rng, 0.30, 0.65),
+	}
+}
+
+// moonPatchColor picks the color of a moon's recolored regions: either icy
+// (pale, cool, bright — ice fields) or a contrasting dusty hue (mineral spots).
+func moonPatchColor(rng *rand.Rand, base gfx.HSV) gfx.HSV {
+	if rng.Float64() < 0.5 {
+		return gfx.HSV{H: rnd(rng, 180, 235), S: rnd(rng, 0.05, 0.25), V: rnd(rng, 0.70, 0.95)}
+	}
+	return gfx.HSV{H: math.Mod(base.H+rnd(rng, 60, 300), 360), S: rnd(rng, 0.25, 0.60), V: rnd(rng, 0.30, 0.60)}
+}
+
+// makeCraters scatters elliptical craters across a moon, but only if it is big
+// enough to show them. Count scales with size; craters may overlap and run off
+// the limb (where they read as foreshortened ellipses).
+func makeCraters(rng *rand.Rand, r int) []crater {
+	if r < moonCraterMinR {
+		return nil
+	}
+	n := min(5+rng.Intn(3+r/10), moonCraterMax)
+	craters := make([]crater, 0, n)
+	for range n {
+		// Best-candidate sampling: try a few spots and keep the one farthest
+		// from existing craters, so they spread out rather than clumping into a
+		// mess. Overlaps still happen occasionally (small clusters of 2-3).
+		var bx, by, bdc float64
+		best := -1.0
+		for range 8 {
+			dc := 0.93 * math.Sqrt(rng.Float64())
+			ang := rng.Float64() * 2 * math.Pi
+			x, y := dc*math.Cos(ang), dc*math.Sin(ang)
+			nearest := math.MaxFloat64
+			for _, c := range craters {
+				if d := math.Hypot(x-c.cx, y-c.cy); d < nearest {
+					nearest = d
+				}
+			}
+			if nearest > best {
+				best, bx, by, bdc = nearest, x, y, dc
+			}
+		}
+
+		rx, ry := 1.0, 0.0
+		if bdc > 1e-6 {
+			rx, ry = bx/bdc, by/bdc
+		}
+		// Strongly bias toward small craters, more so on bigger planets (where
+		// we can resolve many tiny ones), leaving medium/large as rare outliers.
+		p := math.Min(3+float64(r)*0.012, 8)
+		size := moonCraterMinSz + (moonCraterMaxSz-moonCraterMinSz)*math.Pow(rng.Float64(), p)
+		foreshorten := math.Max(math.Sqrt(math.Max(1-bdc*bdc, 0)), moonCraterMinFor)
+		craters = append(craters, crater{
+			cx:     bx,
+			cy:     by,
+			size:   size,
+			radial: size * foreshorten,
+			rx:     rx,
+			ry:     ry,
+			seed:   rng.Int(),
+		})
+	}
+	return craters
 }
 
 // buildGasGiantBands builds the latitude->color gradient for a gas giant. A
@@ -213,11 +380,74 @@ func buildGasGiantBands(rng *rand.Rand) gfx.Gradient {
 	return grad
 }
 
-func drawPlanet(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []float64) {
+// lightModel is the resolved dominant-star lighting for a scene. lx,ly,lz is
+// the 3D light direction (z toward the viewer); col tints the lit side; termW
+// is the terminator half-width (small = sharp shadow); ambient fills the dark
+// side. The in-plane part (lx,ly) doubles as the crater-wall light direction,
+// already scaled by the phase so crater shadows vanish at full phase.
+type lightModel struct {
+	lx, ly, lz float64
+	col        gfx.RGB
+	termW      float64
+	ambient    float64
+}
+
+func newLightModel(s Settings) lightModel {
+	a := s.TwinkleAngle * math.Pi / 180
+	// In-plane light direction along the equator/band axis — the same axis the
+	// gas-giant bands run along — pointing up-and-to-the-left, so planets are
+	// lit from the left with shadows to the right. A planet whose rotation
+	// matches the star angle faces the star equator-on, so the terminator
+	// crosses its bands and they're all visible; planets are lit differently
+	// only as their rotation diverges from the star angle.
+	dx, dy := -math.Cos(a), -math.Sin(a)
+	phaseAngle := (1 - s.LightPhase) * math.Pi
+	sinP, cosP := math.Sin(phaseAngle), math.Cos(phaseAngle)
+	return lightModel{
+		lx: dx * sinP, ly: dy * sinP, lz: cosP,
+		col:     s.LightColor,
+		termW:   0.45*(1-s.LightBrightness) + 0.03,
+		ambient: s.LightAmbient,
+	}
+}
+
+func drawPlanet(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []float64, lm lightModel) {
 	switch p.typ {
 	case GasGiant:
-		drawGasGiant(img, w, h, p, skyRow, hazeRow)
+		drawGasGiant(img, w, h, p, skyRow, hazeRow, lm)
+	case Moon:
+		drawMoon(img, w, h, p, skyRow, hazeRow, lm)
 	}
+}
+
+// blendPlanetPixel finishes a planet pixel: limb darkening (sphere shading via
+// rr = nx^2+ny^2), then a fade toward the sky color by the per-row haze, then a
+// feathered write.
+func blendPlanetPixel(img *image.RGBA, w, h, xx, yy int, surf gfx.HSV, nx, ny, a float64, skyRow []gfx.RGB, hazeRow []float64, lm lightModel, seed int) {
+	// Diffuse lighting from the dominant star. n is the sphere normal; illum is
+	// n·L. The terminator (illum≈0) is sharpened by termW and jittered slightly
+	// by surface texture; the lit side keeps a spherical (center-bright) falloff.
+	nz := math.Sqrt(math.Max(1-nx*nx-ny*ny, 0))
+	illum := nx*lm.lx + ny*lm.ly + nz*lm.lz
+	illum += (gfx.FBM((nx+1)*6, (ny+1)*6, seed+7, 2) - 0.5) * 0.06
+	lit := smoothstep(-lm.termW, lm.termW, illum) * math.Min(0.55+0.45*math.Max(illum, 0), 1)
+
+	// Lit side tinted by the star color; the dark side falls to the ambient fill.
+	base := surf.RGB()
+	pr := gfx.RGB{
+		R: base.R * (lm.ambient + (1-lm.ambient)*lit*lm.col.R),
+		G: base.G * (lm.ambient + (1-lm.ambient)*lit*lm.col.G),
+		B: base.B * (lm.ambient + (1-lm.ambient)*lit*lm.col.B),
+	}
+
+	sky := skyRow[yy]
+	hz := hazeRow[yy]
+	final := gfx.RGB{
+		R: pr.R + (sky.R-pr.R)*hz,
+		G: pr.G + (sky.G-pr.G)*hz,
+		B: pr.B + (sky.B-pr.B)*hz,
+	}
+	blendPixel(img, w, h, xx, yy, final, a)
 }
 
 // drawGasGiant renders the banded sphere. For each disc pixel it rotates into
@@ -226,7 +456,7 @@ func drawPlanet(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow [
 // gradient, and applies limb darkening so the disc reads as round. The color is
 // then blended toward the sky color by the per-row haze (so low planets fade
 // into the sky), and the rim is feathered.
-func drawGasGiant(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []float64) {
+func drawGasGiant(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []float64, lm lightModel) {
 	rf := float64(p.r)
 	cs, sn := math.Cos(p.rotation), math.Sin(p.rotation)
 	for oy := -p.r; oy <= p.r; oy++ {
@@ -263,21 +493,147 @@ func drawGasGiant(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow
 			latp := clamp(lat+(tb-0.5)*p.turbAmp, 0, 1)
 
 			col := p.bands.At(latp)
-			z := math.Sqrt(math.Max(1-rr, 0)) // sphere normal toward viewer
-			col.V *= planetLimbMin + (1-planetLimbMin)*z
-
-			// Fade toward the sky color near the horizon (atmospheric haze).
-			pr := col.RGB()
-			sky := skyRow[yy]
-			hz := hazeRow[yy]
-			final := gfx.RGB{
-				R: pr.R + (sky.R-pr.R)*hz,
-				G: pr.G + (sky.G-pr.G)*hz,
-				B: pr.B + (sky.B-pr.B)*hz,
-			}
-			blendPixel(img, w, h, xx, yy, final, a)
+			blendPlanetPixel(img, w, h, xx, yy, col, nx, ny, a, skyRow, hazeRow, lm, p.turbSeed)
 		}
 	}
+}
+
+// drawMoon renders an airless, rocky body: a mottled base color (washed-out,
+// gray-leaning), optional lighter poles, and elliptical impact craters, all on
+// a limb-shaded sphere. There is no atmospheric band structure.
+func drawMoon(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []float64, lm lightModel) {
+	rf := float64(p.r)
+	cs, sn := math.Cos(p.rotation), math.Sin(p.rotation)
+	// Rim lip and inner wall thicknesses in disc-radius units: a thin pixel
+	// count regardless of how big the planet is on screen.
+	lipW := (moonLipBasePx + moonLipGrowPx*rf) / rf
+	wallW := (moonWallBasePx + moonWallGrowPx*rf) / rf
+	// Crater walls are lit by the dominant star's in-plane direction (already
+	// scaled by phase, so shadows fade out as the planet approaches full).
+	lightX, lightY := lm.lx, lm.ly
+	for oy := -p.r; oy <= p.r; oy++ {
+		yy := p.cy + oy
+		if yy < 0 || yy >= h {
+			continue
+		}
+		ny := float64(oy) / rf
+		for ox := -p.r; ox <= p.r; ox++ {
+			xx := p.cx + ox
+			if xx < 0 || xx >= w {
+				continue
+			}
+			nx := float64(ox) / rf
+			rr := nx*nx + ny*ny
+			if rr > 1 {
+				continue
+			}
+
+			a := 1.0
+			if dist := math.Sqrt(rr) * rf; dist > rf-1 {
+				a = rf - dist
+			}
+			if a <= 0 {
+				continue
+			}
+
+			// Rotate into surface space so poles/mottle tilt with the planet.
+			bx := nx*cs + ny*sn
+			by := -nx*sn + ny*cs
+
+			surf := p.base
+
+			// Dark maria (lava-plain) patches — the man-in-the-moon look.
+			if p.mariaDark > 0 {
+				mv := gfx.FBM((bx+1)*moonMariaScale, (by+1)*moonMariaScale, p.turbSeed+101, 4)
+				mm := smoothstep(p.mariaThresh-0.08, p.mariaThresh+0.08, mv)
+				surf.V *= 1 - p.mariaDark*mm
+				surf.S *= 1 - 0.3*mm // maria read a touch greyer
+			}
+
+			// Recolored patches — ice fields or dusty regions of another hue.
+			if p.patchBlend > 0 {
+				pv := gfx.FBM((bx+1)*moonPatchScale+5, (by+1)*moonPatchScale, p.turbSeed+211, 3)
+				pm := smoothstep(p.patchThresh-0.08, p.patchThresh+0.08, pv) * p.patchBlend
+				surf = lerpHSV(surf, p.patchColor, pm)
+			}
+
+			// Mottled rock (fine texture over everything).
+			m := gfx.FBM((bx+1)*moonMottleScale, (by+1)*moonMottleScale, p.turbSeed, 4)
+			surf.V *= 1 + (m-0.5)*p.turbAmp
+			surf.S *= 1 + (m-0.5)*0.2
+
+			// Lighter, desaturated poles.
+			if p.poleLight > 0 {
+				if pole := math.Abs(by); pole > moonPoleStart {
+					f := (pole - moonPoleStart) / (1 - moonPoleStart)
+					surf.V += p.poleLight * f * f
+					surf.S *= 1 - 0.5*f
+				}
+			}
+
+			// Craters: the topmost (latest) crater covering this pixel wins, so a
+			// newer impact obliterates older ones it overlaps instead of ghosting.
+			for i := len(p.craters) - 1; i >= 0; i-- {
+				if s, owns := craterAt(nx, ny, lightX, lightY, lipW, wallW, p.craters[i]); owns {
+					surf.V *= s
+					break
+				}
+			}
+
+			blendPlanetPixel(img, w, h, xx, yy, surf, nx, ny, a, skyRow, hazeRow, lm, p.turbSeed)
+		}
+	}
+}
+
+// craterAt returns the brightness multiplier for one crater at disc point
+// (nx,ny) and whether the crater covers (owns) that pixel. The crater is a
+// foreshortened ellipse (minor axis radial, major axis tangent). It reads as a
+// vast, flat-floored crater: a uniformly darker interior, a *thin* directional
+// inner wall ring just inside the rim (lit away from the light, shadowed toward
+// it), and a pixel-thin rim lip. Both rings are absolute (pixel) widths, so they
+// stay thin even on a huge planet. The rim is roughened so it isn't a clean
+// ellipse. owns is false (and the multiplier 1) outside the crater footprint.
+func craterAt(nx, ny, lightX, lightY, lipW, wallW float64, cr crater) (float64, bool) {
+	ddx, ddy := nx-cr.cx, ny-cr.cy
+	// Decompose into the crater's radial (foreshortened) and tangential axes.
+	dr := ddx*cr.rx + ddy*cr.ry
+	dt := -ddx*cr.ry + ddy*cr.rx
+	de := math.Hypot(dr/cr.radial, dt/cr.size)
+
+	// Roughen the rim so the edge is jagged, not a perfect ellipse.
+	de *= 1 + moonCraterJagAmp*(gfx.FBM((nx+1)*moonCraterJagScl, (ny+1)*moonCraterJagScl, cr.seed, 2)-0.5)
+
+	dd := (de - 1) * cr.size // distance from the rim, in disc-radius units
+	if dd > lipW*1.6 {
+		return 1, false
+	}
+
+	// Direction outward from the crater center, for the directional relief.
+	nrm := math.Hypot(ddx, ddy) + 1e-9
+	ld := (ddx/nrm)*lightX + (ddy/nrm)*lightY
+
+	floorMask := smoothstep(0, -wallW*1.5, dd)  // flat dark interior just inside the rim
+	wall := math.Exp(-sq((dd + wallW) / wallW)) // thin inner-wall ring
+	lip := math.Exp(-sq(dd / lipW))             // pixel-thin rim line
+
+	shade := 1 - moonCraterFloor*floorMask // flat dark floor
+	shade -= moonCraterRelief * ld * wall  // thin wall: shadowed toward light, lit away
+	shade += moonCraterLip * ld * lip      // thin rim: bright toward light, dark away
+	return math.Max(shade, 0.04), true
+}
+
+// smoothstep returns a smooth 0->1 ramp for x in [a,b].
+func smoothstep(a, b, x float64) float64 {
+	t := clamp((x-a)/(b-a), 0, 1)
+	return t * t * (3 - 2*t)
+}
+
+func sq(x float64) float64 { return x * x }
+
+// lerpHSV blends from a to b by t, taking the shorter arc around the hue wheel.
+func lerpHSV(a, b gfx.HSV, t float64) gfx.HSV {
+	dh := math.Mod(b.H-a.H+540, 360) - 180
+	return gfx.HSV{H: a.H + dh*t, S: a.S + (b.S-a.S)*t, V: a.V + (b.V-a.V)*t}
 }
 
 func clamp(v, lo, hi float64) float64 { return math.Min(math.Max(v, lo), hi) }

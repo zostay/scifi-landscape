@@ -55,6 +55,12 @@ which is what makes scenes reproducible.
 ### Global settings (so far)
 
 - **Time of day** — `midday`, `dusk`, or `twilight`. Drives the sky palette.
+- **Dominant-star light** — how planets are lit: the star's **color** (tints the
+  lit side), **brightness** (terminator harshness — high gives a sharp shadow
+  line, low a soft fade), **phase** (full = fully sunlit with a spherical
+  highlight, new = visible only by ambient light), and **ambient** (fill light in
+  shadow — low leaves shadows black, high keeps features visible). The light's
+  angle is the star/twinkle angle below.
 - **Horizon point** — between 20% and 50% of the scene height *measured from
   the bottom* (the ground's share), normally distributed around ~35%. So the
   sky always fills 50–80% of the scene — there's never more ground than sky.
@@ -102,10 +108,24 @@ which is what makes scenes reproducible.
   ~75% chance of any planets; when present the count is usually a few but can run
   up to 20, with multiples common. Sizes range from a few-pixel dot to half the
   scene width (biased small), though the first planet is often a dominant world
-  filling 20–50% of the sky. Each planet has a type; the first is the **gas
-  giant** — turbulent latitudinal color bands on a limb-shaded sphere, with
-  palettes from similar hues (Neptune-like), to moderately variable
-  (Jupiter-like), to fantastic. Each planet's bands are tilted: the global star
+  filling 20–50% of the sky. Each planet has a type:
+  - **Gas giant** — turbulent latitudinal color bands on a limb-shaded sphere,
+    with palettes from similar hues (Neptune-like), to moderately variable
+    (Jupiter-like), to fantastic.
+  - **Moon** — an airless rocky body in washed-out, gray-leaning dusty colors
+    (any hue possible). Its surface is built from several layers: fine mottle,
+    large dark "maria" lava patches (the man-in-the-moon look), recolored ice or
+    dusty patches of another hue, often lighter poles, and — if large enough — a
+    spread-out scattering of impact craters (mostly small, with the occasional
+    larger one). Craters are
+    circular on the sphere — so they appear round near the disc center and
+    foreshorten into tangent-aligned ellipses toward the limb. Each is a vast,
+    flat-floored crater: a uniformly darker floor, a thin (near-pixel-width)
+    inner highlight/shadow ring and rim lip lit from the planet's rotation
+    direction. Overlapping craters obliterate the ones beneath them, like fresh
+    impacts over old.
+
+  Each planet's surface is tilted: the global star
   angle plus a per-planet rotation of up to 90° (biased small, so planets stay
   fairly aligned). Planets also fade toward the sky color near the horizon
   (atmospheric haze) — strongly at dusk and, in daylight, fading to basically
