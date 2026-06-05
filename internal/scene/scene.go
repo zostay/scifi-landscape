@@ -29,6 +29,13 @@ type Context struct {
 	// up front so elements other than the sky (e.g. planets fading into the sky
 	// near the horizon) can sample the same colors the sky was drawn with.
 	SkyGradient gfx.Gradient
+
+	// GroundGradient is the scene's ground color gradient (horizon -> foreground),
+	// also built once up front and shared, so mountains can base their color on
+	// the same palette as the ground. GroundVariable reports whether the ground
+	// uses the multi-color "variable" mode.
+	GroundGradient gfx.Gradient
+	GroundVariable bool
 }
 
 // Element is one piece of a scene (sky, ground, structures, ...). Render draws
@@ -56,6 +63,7 @@ func New(s Settings) *Scene {
 			&Stars{},
 			&SystemStars{},
 			&Planets{},
+			&Mountains{},
 			&Ground{},
 		},
 	}
@@ -77,9 +85,11 @@ func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, rng *rand.Rand, w
 		W:        w,
 		H:        h,
 	}
-	// Build the sky gradient up front (same point in the rng stream where the
-	// sky element used to build it) so every element shares the same sky colors.
+	// Build the sky and ground gradients up front so every element can share
+	// them (planets fade into the sky color; mountains base on the ground color).
 	sctx.SkyGradient = buildSkyGradient(rng, sc.Settings.Time)
+	sctx.GroundVariable = rng.Float64() < groundVariableChance
+	sctx.GroundGradient = buildGroundGradient(rng, sc.Settings.Time, sctx.GroundVariable)
 
 	for _, el := range sc.Elements {
 		if onElement != nil {

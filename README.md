@@ -136,6 +136,15 @@ which is what makes scenes reproducible.
   light: their reflected light is screened over the sky, so they only ever
   brighten it, and the shadowed side simply fades into the sky color.
 
+- **Mountains** — a range along the horizon (only some scenes have one), rising
+  into the sky in front of the planets. Shaped by a **height** (averaging ~10% of
+  the sky, occasionally up to 50%) and a **smoothness**: high smoothness gives a
+  few key points and gentle curves with little noise, low smoothness gives many
+  points and heavy noise for jagged peaks. The combinations span rolling hills,
+  Rockies/Alps, low buttes, and jagged airless ridges. Colored by a gradient from
+  a ground-like base up to light/white, normalized by absolute altitude so only
+  genuinely tall peaks turn white (snow caps).
+
 - **Ground** — the base terrain below the horizon, always drawn (drawn last, so
   the suns and planets set behind it). Any color, in one of two modes:
   - *Normal*: one base hue, roughly uniform, with light/dark and saturation
@@ -160,7 +169,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Ground elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Mountains/Ground elements
 internal/app/        Ebiten front-end + generation controller
 ```
 

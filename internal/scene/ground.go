@@ -63,8 +63,8 @@ func (g *Ground) Render(c *Context) error {
 		return nil // no room for ground
 	}
 
-	variable := c.Rng.Float64() < groundVariableChance
-	grad := buildGroundGradient(c.Rng, c.Settings.Time, variable)
+	variable := c.GroundVariable
+	grad := c.GroundGradient
 	seed := c.Rng.Int()
 	var wanderSeed int
 	if variable {
