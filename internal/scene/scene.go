@@ -49,6 +49,7 @@ func New(s Settings) *Scene {
 			&Sky{},
 			&Stars{},
 			&SystemStars{},
+			&Ground{},
 		},
 	}
 }

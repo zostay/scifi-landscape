@@ -95,15 +95,31 @@ which is what makes scenes reproducible.
   to the sun's color); small ones get a twinkle cross at the global angle. At
   dusk the suns sit on or near the horizon, like a setting sun.
 
+- **Ground** — the base terrain below the horizon, always drawn (drawn last, so
+  the suns set behind it). Any color, in one of two modes:
+  - *Normal*: one base hue, roughly uniform, with light/dark and saturation
+    variation — hazier/lighter at the distant horizon, darker/more saturated in
+    the foreground.
+  - *Variable*: the depth gradient runs through a random number (2–5) of random
+    colors, and a low-frequency noise wanders the gradient lookup so color
+    patches drift back and forth instead of transitioning cleanly — an alien,
+    non-uniform surface.
+
+  Brightness scales with the time of day. Fractal value-noise texture is baked
+  in so it reads as a surface, coarser toward the foreground, and the noise is
+  warped so it's strongly stretched near the horizon (thin streaks) and relaxes
+  toward the foreground. It is built in horizontal bands that are narrow at the
+  horizon and grow taller toward the foreground, giving a sense of distance.
+
 ## Code layout
 
 ```
 main.go              interactive entry point (flags, window)
 cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
-internal/gfx/        RGB/HSV color + gradient interpolation
+internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Ground elements
 internal/app/        Ebiten front-end + generation controller
 ```
 
