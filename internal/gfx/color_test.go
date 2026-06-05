@@ -42,11 +42,28 @@ func TestGradientClampAndEndpoints(t *testing.T) {
 	}
 }
 
-func TestLerpHueShortestArc(t *testing.T) {
-	// 350 -> 10 should cross 0 (the short way), landing near 0 at the midpoint.
-	got := lerpHue(350, 10, 0.5)
-	if d := math.Min(got, 360-got); d > 1 {
-		t.Errorf("lerpHue(350,10,0.5) = %v, want ~0/360 (shortest arc through 0)", got)
+// Gradients interpolate in RGB, so a stop between two distant hues blends
+// through a desaturated mix rather than sweeping the hue wheel (no rainbow).
+func TestGradientBlendsThroughMixNotRainbow(t *testing.T) {
+	g := Gradient{
+		{Pos: 0, Col: HSV{60, 1, 1}},  // yellow
+		{Pos: 1, Col: HSV{240, 1, 1}}, // blue
+	}
+	mid := g.At(0.5)
+	// The RGB midpoint of yellow and blue is a grayish mix (low saturation),
+	// never a vivid intermediate hue like green or magenta.
+	if mid.S > 0.5 {
+		t.Errorf("midpoint saturation %.2f too high; expected a desaturated mix", mid.S)
+	}
+}
+
+func TestRGBHSVRoundTrip(t *testing.T) {
+	for _, h := range []float64{0, 45, 120, 210, 300} {
+		in := HSV{H: h, S: 0.8, V: 0.7}
+		got := in.RGB().HSV()
+		if !close(got.S, 0.8) || !close(got.V, 0.7) {
+			t.Errorf("round trip S/V: in %v got %v", in, got)
+		}
 	}
 }
 

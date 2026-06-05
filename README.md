@@ -99,9 +99,10 @@ which is what makes scenes reproducible.
   color and a size biased small (about like Earth's sun) with a rare tail up to
   20% of the sky width. A soft circular glow brightens the sky around each
   before its disc is drawn (white-hot core fading to the sun's color); small
-  ones get a twinkle cross at the global angle. At dusk the suns sit on or near
-  the horizon, like a setting sun; at twilight a few small, dim suns may appear,
-  scattered in the night sky like faint distant stars.
+  ones get a twinkle cross at the global angle. At dusk the suns sit low — near
+  the horizon, but wandering up to about a quarter of the sky and sometimes just
+  under the horizon; at twilight a few small, dim suns may appear, scattered in
+  the night sky like faint distant stars.
 
 - **Planets** — planets in the sky, in front of the stars and suns but behind
   the ground (so one near the horizon is occluded by the terrain). A scene has a
@@ -131,7 +132,9 @@ which is what makes scenes reproducible.
   (atmospheric haze) — strongly at dusk and, in daylight, fading to basically
   nothing before reaching the horizon — so low planets blend into the sky while
   still hiding the stars and suns behind them, and the sky itself is never
-  dimmed. (At twilight there is no haze, so planets stay crisp.)
+  dimmed. (At twilight there is no haze, so planets stay crisp.) Planets emit no
+  light: their reflected light is screened over the sky, so they only ever
+  brighten it, and the shadowed side simply fades into the sky color.
 
 - **Ground** — the base terrain below the horizon, always drawn (drawn last, so
   the suns and planets set behind it). Any color, in one of two modes:

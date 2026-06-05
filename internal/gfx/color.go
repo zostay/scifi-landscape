@@ -79,14 +79,34 @@ func lerp(a, b, t float64) float64 {
 	return a + (b-a)*t
 }
 
-// lerpHue interpolates between two hues along the shorter arc of the color
-// wheel, which keeps transitions between adjacent gradient stops looking
-// natural (e.g. green->cyan->blue rather than the long way around).
-func lerpHue(a, b, t float64) float64 {
-	a = wrapHue(a)
-	b = wrapHue(b)
-	d := math.Mod(b-a+540, 360) - 180 // shortest signed delta in (-180, 180]
-	return wrapHue(a + d*t)
+// HSV converts an RGB color to HSV (H in [0,360), S and V in [0,1]).
+func (c RGB) HSV() HSV {
+	r, g, b := clamp01(c.R), clamp01(c.G), clamp01(c.B)
+	mx := math.Max(r, math.Max(g, b))
+	mn := math.Min(r, math.Min(g, b))
+	d := mx - mn
+
+	v := mx
+	var s float64
+	if mx > 0 {
+		s = d / mx
+	}
+	var h float64
+	if d > 0 {
+		switch mx {
+		case r:
+			h = math.Mod((g-b)/d, 6)
+		case g:
+			h = (b-r)/d + 2
+		default:
+			h = (r-g)/d + 4
+		}
+		h *= 60
+		if h < 0 {
+			h += 360
+		}
+	}
+	return HSV{H: h, S: s, V: v}
 }
 
 // Stop is one color stop in a Gradient at a normalized position in [0, 1].
@@ -96,8 +116,9 @@ type Stop struct {
 }
 
 // Gradient is an ordered list of HSV color stops (ascending Pos). Interpolation
-// happens in HSV space so the path travels through intermediate hues, which is
-// what we want for dusk skies that run yellow -> orange -> red and the like.
+// happens in RGB space (not by sweeping the hue wheel): the stop colors stay
+// vivid, but transitions blend through a mix rather than running through the
+// whole rainbow, which would look psychedelic.
 type Gradient []Stop
 
 // At samples the gradient at normalized position p (clamped to [0, 1]).
@@ -120,11 +141,12 @@ func (g Gradient) At(p float64) HSV {
 				return b.Col
 			}
 			t := (p - a.Pos) / span
-			return HSV{
-				H: lerpHue(a.Col.H, b.Col.H, t),
-				S: lerp(a.Col.S, b.Col.S, t),
-				V: lerp(a.Col.V, b.Col.V, t),
-			}
+			ca, cb := a.Col.RGB(), b.Col.RGB()
+			return RGB{
+				R: lerp(ca.R, cb.R, t),
+				G: lerp(ca.G, cb.G, t),
+				B: lerp(ca.B, cb.B, t),
+			}.HSV()
 		}
 	}
 	return last.Col

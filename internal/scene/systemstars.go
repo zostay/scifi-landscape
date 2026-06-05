@@ -119,8 +119,11 @@ func makeSun(rng *rand.Rand, w, h int, set Settings) sun {
 	cx := rng.Intn(w)
 	var cy int
 	if set.Time == Dusk {
-		// On or near the horizon — mostly sitting just below it (setting sun).
-		cy = set.HorizonY + int(rnd(rng, -0.8, 0.3)*float64(r))
+		// Low in the sky: biased near the horizon, but wandering up to about a
+		// quarter of the sky, and sometimes dipping just under the horizon.
+		sky := float64(set.HorizonY)
+		frac := rng.Float64()*rng.Float64()*0.33 - 0.04 // [-0.04, 0.29), biased low
+		cy = set.HorizonY - int(frac*sky)
 	} else {
 		// Up in the sky, between the top margin and just shy of the horizon.
 		top := int(0.05 * float64(h))

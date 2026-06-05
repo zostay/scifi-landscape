@@ -420,9 +420,10 @@ func drawPlanet(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow [
 	}
 }
 
-// blendPlanetPixel finishes a planet pixel: limb darkening (sphere shading via
-// rr = nx^2+ny^2), then a fade toward the sky color by the per-row haze, then a
-// feathered write.
+// blendPlanetPixel finishes a planet pixel. Planets emit no light: they only
+// reflect the dominant star, so they brighten the sky rather than darkening it.
+// The reflected light is screened over the sky color, which means the shadowed
+// side (and anything faded by atmospheric haze) simply disappears into the sky.
 func blendPlanetPixel(img *image.RGBA, w, h, xx, yy int, surf gfx.HSV, nx, ny, a float64, skyRow []gfx.RGB, hazeRow []float64, lm lightModel, seed int) {
 	// Diffuse lighting from the dominant star. n is the sphere normal; illum is
 	// n·L. The terminator (illum≈0) is sharpened by termW and jittered slightly
@@ -432,20 +433,21 @@ func blendPlanetPixel(img *image.RGBA, w, h, xx, yy int, surf gfx.HSV, nx, ny, a
 	illum += (gfx.FBM((nx+1)*6, (ny+1)*6, seed+7, 2) - 0.5) * 0.06
 	lit := smoothstep(-lm.termW, lm.termW, illum) * math.Min(0.55+0.45*math.Max(illum, 0), 1)
 
-	// Lit side tinted by the star color; the dark side falls to the ambient fill.
+	// Reflected light = albedo × (ambient + direct), tinted by the star color,
+	// then faded out by atmospheric haze near the horizon. In shadow with low
+	// ambient this goes to ~0, so the planet vanishes into the sky there.
 	base := surf.RGB()
-	pr := gfx.RGB{
-		R: base.R * (lm.ambient + (1-lm.ambient)*lit*lm.col.R),
-		G: base.G * (lm.ambient + (1-lm.ambient)*lit*lm.col.G),
-		B: base.B * (lm.ambient + (1-lm.ambient)*lit*lm.col.B),
-	}
+	refl := (lm.ambient + (1-lm.ambient)*lit) * (1 - hazeRow[yy])
+	rr := base.R * lm.col.R * refl
+	rg := base.G * lm.col.G * refl
+	rb := base.B * lm.col.B * refl
 
+	// Screen the reflected light over the sky: the planet can only brighten it.
 	sky := skyRow[yy]
-	hz := hazeRow[yy]
 	final := gfx.RGB{
-		R: pr.R + (sky.R-pr.R)*hz,
-		G: pr.G + (sky.G-pr.G)*hz,
-		B: pr.B + (sky.B-pr.B)*hz,
+		R: sky.R + rr - sky.R*rr,
+		G: sky.G + rg - sky.G*rg,
+		B: sky.B + rb - sky.B*rb,
 	}
 	blendPixel(img, w, h, xx, yy, final, a)
 }
@@ -630,10 +632,15 @@ func smoothstep(a, b, x float64) float64 {
 
 func sq(x float64) float64 { return x * x }
 
-// lerpHSV blends from a to b by t, taking the shorter arc around the hue wheel.
+// lerpHSV blends from a to b by t in RGB space (not by sweeping the hue wheel),
+// so patch transitions don't run through the rainbow.
 func lerpHSV(a, b gfx.HSV, t float64) gfx.HSV {
-	dh := math.Mod(b.H-a.H+540, 360) - 180
-	return gfx.HSV{H: a.H + dh*t, S: a.S + (b.S-a.S)*t, V: a.V + (b.V-a.V)*t}
+	ra, rb := a.RGB(), b.RGB()
+	return gfx.RGB{
+		R: ra.R + (rb.R-ra.R)*t,
+		G: ra.G + (rb.G-ra.G)*t,
+		B: ra.B + (rb.B-ra.B)*t,
+	}.HSV()
 }
 
 func clamp(v, lo, hi float64) float64 { return math.Min(math.Max(v, lo), hi) }
