@@ -136,11 +136,16 @@ func starColor(rng *rand.Rand) gfx.RGB {
 }
 
 // drawStar renders one star onto img. dx,dy is the shared twinkle direction.
+//
+// Stars are emissive, so they are drawn additively (brighten-only): a star can
+// only add light to the sky behind it, never darken it. This keeps a
+// saturated-but-bright star color from compositing into a dull, dark dot when
+// it sits over a brighter part of the gradient.
 func drawStar(img *image.RGBA, w, h int, st star, dx, dy float64) {
 	if st.radius == 0 {
-		blendPixel(img, w, h, st.x, st.y, st.col, st.alpha)
+		addPixel(img, w, h, st.x, st.y, st.col, st.alpha)
 	} else {
-		// Filled disc, alpha tapering slightly toward the edge.
+		// Filled disc, intensity tapering slightly toward the edge.
 		r2 := st.radius * st.radius
 		for oy := -st.radius; oy <= st.radius; oy++ {
 			for ox := -st.radius; ox <= st.radius; ox++ {
@@ -149,7 +154,7 @@ func drawStar(img *image.RGBA, w, h int, st star, dx, dy float64) {
 					continue
 				}
 				a := st.alpha * (1 - 0.4*float64(d2)/float64(r2+1))
-				blendPixel(img, w, h, st.x+ox, st.y+oy, st.col, a)
+				addPixel(img, w, h, st.x+ox, st.y+oy, st.col, a)
 			}
 		}
 	}
@@ -162,10 +167,10 @@ func drawStar(img *image.RGBA, w, h int, st star, dx, dy float64) {
 		a := st.alpha * (1 - float64(t)/float64(st.spike+1))
 		fx, fy := dx*float64(t), dy*float64(t)
 		px, py := -dy*float64(t), dx*float64(t) // perpendicular axis
-		blendPixel(img, w, h, st.x+round(fx), st.y+round(fy), st.col, a)
-		blendPixel(img, w, h, st.x-round(fx), st.y-round(fy), st.col, a)
-		blendPixel(img, w, h, st.x+round(px), st.y+round(py), st.col, a)
-		blendPixel(img, w, h, st.x-round(px), st.y-round(py), st.col, a)
+		addPixel(img, w, h, st.x+round(fx), st.y+round(fy), st.col, a)
+		addPixel(img, w, h, st.x-round(fx), st.y-round(fy), st.col, a)
+		addPixel(img, w, h, st.x+round(px), st.y+round(py), st.col, a)
+		addPixel(img, w, h, st.x-round(px), st.y-round(py), st.col, a)
 	}
 }
 

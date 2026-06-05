@@ -48,6 +48,7 @@ func New(s Settings) *Scene {
 		Elements: []Element{
 			&Sky{},
 			&Stars{},
+			&SystemStars{},
 		},
 	}
 }

@@ -61,9 +61,9 @@ which is what makes scenes reproducible.
   The sky gradient is anchored at this line.
 - **Twinkle angle** — the shared orientation of star twinkle spikes, 0–90°,
   biased hard toward 0° (90° is rarest). Every twinkling star uses this angle.
-- **Star density** — a log-normal multiplier on the earthlike star count, so
-  ~1× (earthlike) is most common, ranging from a near-empty sky to a dense
-  cluster.
+- **Star density** — a log-normal multiplier on the earthlike star count,
+  biased so a richer-than-earthlike sky (~1.7×) is typical, still ranging from a
+  near-empty sky to a dense cluster.
 
 ### Elements (so far)
 
@@ -87,6 +87,14 @@ which is what makes scenes reproducible.
   the whole scene; at dusk they fade toward the bottom via alpha. How many stars
   appear is set by the star-density setting.
 
+- **System stars** — the local sun(s) of the system (only in daylight and at
+  dusk, never twilight). There are 0–5, usually 0 or 1, with higher counts much
+  rarer at dusk. Each has its own color and a size biased small (about like
+  Earth's sun) with a rare tail up to 20% of the sky width. A soft circular glow
+  brightens the sky around each before its disc is drawn (white-hot core fading
+  to the sun's color); small ones get a twinkle cross at the global angle. At
+  dusk the suns sit on or near the horizon, like a setting sun.
+
 ## Code layout
 
 ```
@@ -95,7 +103,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky and Stars elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars elements
 internal/app/        Ebiten front-end + generation controller
 ```
 

@@ -62,12 +62,14 @@ const (
 	twinkleStd = 24.0
 )
 
-// Star density: a multiplier on the "earthlike" star count, drawn log-normally
-// so 1.0 (earthlike) is most common and the tails reach a near-empty sky or a
-// dense cluster. densityStd scales a normal in log space; densityClamp bounds
-// the exponent so the count stays sane.
+// Star density: a multiplier on the "earthlike" star count, drawn log-normally.
+// densityStd scales a normal in log space; densityBias shifts its mean up so
+// richer-than-earthlike skies are the norm (the typical multiplier is
+// exp(densityBias*densityStd) ≈ 1.7×); densityClamp bounds the exponent so the
+// tails still reach a near-empty sky or a dense cluster without going absurd.
 const (
 	densityStd   = 0.9
+	densityBias  = 0.6
 	densityClamp = 3.0
 )
 
@@ -111,8 +113,9 @@ func NewSettings(rng *rand.Rand, timeOverride string, h int) Settings {
 	// Twinkle angle: |normal| biased to 0, clamped to 90.
 	twinkle := min(math.Abs(rng.NormFloat64())*twinkleStd, twinkleMax)
 
-	// Star density: log-normal around 1.0 (earthlike).
-	density := math.Exp(min(max(rng.NormFloat64(), -densityClamp), densityClamp) * densityStd)
+	// Star density: log-normal, biased above earthlike so denser skies are
+	// the norm; still clamped so the tails stay sane.
+	density := math.Exp(min(max(rng.NormFloat64()+densityBias, -densityClamp), densityClamp) * densityStd)
 
 	if override, ok := ParseTimeOfDay(timeOverride); ok {
 		tod = override
