@@ -161,6 +161,16 @@ which is what makes scenes reproducible.
   toward the foreground. It is built in horizontal bands that are narrow at the
   horizon and grow taller toward the foreground, giving a sense of distance.
 
+- **Cities** — a distant city on the ground near the horizon (only some scenes),
+  drawn as clustered rectangular buildings in dark, low-saturation, similar
+  colors — far-off skyscrapers in silhouette. A city can be a small settlement
+  patch or stretch the whole width (dozens of buildings up to thousands). A
+  noisy density field gives it an irregular shape — odd outlines with dense
+  cores and sparse stretches and gaps — and buildings run taller and wider where
+  the city is dense. They are drawn back-to-front: the farthest (highest, at the
+  horizon) first, working down and closer, growing slightly as they near, with
+  the farthest fading into the horizon haze.
+
 ## Code layout
 
 ```
@@ -169,7 +179,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Mountains/Ground elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Mountains/Ground/Cities elements
 internal/app/        Ebiten front-end + generation controller
 ```
 
