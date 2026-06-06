@@ -171,6 +171,13 @@ which is what makes scenes reproducible.
   horizon) first, working down and closer, growing slightly as they near, with
   the farthest fading into the horizon haze.
 
+- **Water** — an ocean filling the foreground (only some scenes), drawn last. It
+  reflects the scene above the horizon — sky, suns, planets, mountains, and the
+  city skyline — by mirroring the already-drawn pixels down across the horizon
+  with wave-ripple distortion (calm and mirror-like near the horizon, choppier
+  toward the viewer) and a water tint that grows, and darkens, with distance
+  from the horizon.
+
 ## Code layout
 
 ```
@@ -179,7 +186,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Mountains/Ground/Cities elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Mountains/Ground/Cities/Water elements
 internal/app/        Ebiten front-end + generation controller
 ```
 
