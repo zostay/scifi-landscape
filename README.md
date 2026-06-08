@@ -141,6 +141,30 @@ which is what makes scenes reproducible.
   light: their reflected light is screened over the sky, so they only ever
   brighten it, and the shadowed side simply fades into the sky color.
 
+- **Clouds** — atmospheric cloud layers in the sky (in front of the stars, suns,
+  and planets, but behind the horizon terrain, so the water reflects them). The
+  sky is kept mostly clear — each kind of layer appears independently and is
+  biased thin/sparse so the clouds never wall off the view. Two kinds:
+  - *High gauzy layer*: a single, mostly-transparent sheet of fractal-noise puffs
+    and ripples covering the whole sky, stretched hard toward the horizon (like
+    the ground) so it recedes into thin distant bands.
+  - *Low nimbus clouds*: discrete, flat-bottomed, billowy clouds, drawn in up to
+    three depth layers — small clouds hugging the horizon drawn first, larger
+    clouds riding higher drawn last over them. Each cloud is a procedural height
+    field — a flat-based envelope lumped up by fractal "cauliflower" billows
+    (multi-octave cellular noise) and finer fractal detail, with the edges eroded
+    to a ragged outline — that is then bump-mapped and lit with the same
+    dominant-sun model as the planets (the light direction comes from the twinkle
+    angle and the lit side is tinted by the star's color), so the billow tops
+    catch the sun and the crevices and the base fall into shadow. The base is
+    nearly flat but not a hard straight cut — it rounds gently up at the rounded
+    tips and carries a shallow scallop. The billow detail scales with on-screen size, so a
+    big near cloud keeps the small-bulb cauliflower texture of a distant one
+    instead of dissolving into a few large lobes.
+
+  Coloring follows the time of day: pale and near-white by day, bright and warm
+  at dusk, dark silhouettes at night.
+
 - **Mountains** — a range along the horizon (only some scenes have one), rising
   into the sky in front of the planets. Shaped by a **height** (averaging ~10% of
   the sky, occasionally up to 50%) and a **smoothness**: high smoothness gives a
@@ -191,7 +215,7 @@ cmd/render/          headless PNG renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Mountains/Ground/Cities/Water elements
+internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Clouds/Mountains/Ground/Cities/Water elements
 internal/app/        Ebiten front-end + generation controller
 ```
 

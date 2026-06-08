@@ -63,6 +63,7 @@ func New(s Settings) *Scene {
 			&Stars{},
 			&SystemStars{},
 			&Planets{},
+			&Clouds{},
 			&Mountains{},
 			&Ground{},
 			&Cities{},

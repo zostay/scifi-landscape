@@ -53,3 +53,46 @@ func TestRidgedFBMInRangeAndDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestPerlinRangeAndContinuity(t *testing.T) {
+	const eps = 0.001
+	for i := range 5000 {
+		x := float64(i%89) * 0.37
+		y := float64(i%61) * 0.53
+		v := Perlin(x, y, 9)
+		if v < -1.001 || v > 1.001 {
+			t.Fatalf("Perlin(%g,%g) = %g out of [-1,1]", x, y, v)
+		}
+		if math.Abs(Perlin(x+eps, y, 9)-v) > 0.05 {
+			t.Fatalf("Perlin jumped over a %g step at (%g,%g)", eps, x, y)
+		}
+	}
+	// Perlin is zero on the lattice (gradients dotted with a zero offset).
+	if v := Perlin(3, 5, 1); math.Abs(v) > 1e-9 {
+		t.Errorf("Perlin at a lattice point = %g, want ~0", v)
+	}
+}
+
+func TestPerlinFBMInRange(t *testing.T) {
+	for i := range 5000 {
+		x := float64(i%97) * 0.3
+		y := float64(i%53) * 0.7
+		if v := PerlinFBM(x, y, 5, 5); v < 0 || v > 1 {
+			t.Fatalf("PerlinFBM(%g,%g) = %g out of [0,1]", x, y, v)
+		}
+	}
+}
+
+func TestWorleyInRange(t *testing.T) {
+	for i := range 5000 {
+		x := float64(i%83) * 0.41
+		y := float64(i%59) * 0.61
+		v := Worley(x, y, 3)
+		if v < 0 || v > 1 {
+			t.Fatalf("Worley(%g,%g) = %g out of [0,1]", x, y, v)
+		}
+		if v2 := Worley(x, y, 3); v != v2 {
+			t.Fatalf("Worley not deterministic: %g vs %g", v, v2)
+		}
+	}
+}

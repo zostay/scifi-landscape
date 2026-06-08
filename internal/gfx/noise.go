@@ -75,3 +75,75 @@ func RidgedFBM(x, y float64, seed, octaves int) float64 {
 	}
 	return sum / norm
 }
+
+// fade is Perlin's quintic interpolation curve 6t^5-15t^4+10t^3, which has zero
+// first and second derivatives at 0 and 1 so adjacent cells join without creases.
+func fade(t float64) float64 { return t * t * t * (t*(t*6-15) + 10) }
+
+// pgrad takes a hash in [0,1) as an angle and returns the dot of that unit
+// gradient with (x,y) — the per-corner contribution of gradient noise.
+func pgrad(h, x, y float64) float64 {
+	a := h * (2 * math.Pi)
+	return math.Cos(a)*x + math.Sin(a)*y
+}
+
+// Perlin is 2D gradient (Perlin) noise: random unit gradients on the integer
+// lattice, each dotted with the offset to the sample point and fade-interpolated.
+// Unlike value noise it has no axis-aligned blockiness and returns roughly
+// [-1, 1] (zero-mean), which makes it the better base for cloud shapes.
+func Perlin(x, y float64, seed int) float64 {
+	x0 := int(math.Floor(x))
+	y0 := int(math.Floor(y))
+	xf := x - float64(x0)
+	yf := y - float64(y0)
+	u := fade(xf)
+	v := fade(yf)
+
+	n00 := pgrad(hash2(x0, y0, seed), xf, yf)
+	n10 := pgrad(hash2(x0+1, y0, seed), xf-1, yf)
+	n01 := pgrad(hash2(x0, y0+1, seed), xf, yf-1)
+	n11 := pgrad(hash2(x0+1, y0+1, seed), xf-1, yf-1)
+
+	return lerp(lerp(n00, n10, u), lerp(n01, n11, u), v)
+}
+
+// PerlinFBM sums octaves of Perlin noise at halving amplitude and doubling
+// frequency, remapped to [0,1]. It is the smooth, organic counterpart to FBM,
+// used for cloud detail and edge erosion. octaves is clamped to at least 1.
+func PerlinFBM(x, y float64, seed, octaves int) float64 {
+	if octaves < 1 {
+		octaves = 1
+	}
+	sum, amp, freq, norm := 0.0, 1.0, 1.0, 0.0
+	for i := 0; i < octaves; i++ {
+		sum += amp * Perlin(x*freq, y*freq, seed+i*131)
+		norm += amp
+		amp *= 0.5
+		freq *= 2
+	}
+	return clamp01(sum/norm*0.5 + 0.5)
+}
+
+// Worley is 2D cellular (Worley) noise: one randomly-placed feature point per
+// lattice cell, returning the distance to the nearest one (F1), clamped to [0,1].
+// Inverted (1-Worley) it gives rounded cellular blobs — the billowy lumps of a
+// cloud. The 3×3 neighbor scan guarantees the true nearest point is found.
+func Worley(x, y float64, seed int) float64 {
+	xi := int(math.Floor(x))
+	yi := int(math.Floor(y))
+	minD := math.MaxFloat64
+	for gy := -1; gy <= 1; gy++ {
+		for gx := -1; gx <= 1; gx++ {
+			cx, cy := xi+gx, yi+gy
+			fx := float64(cx) + hash2(cx, cy, seed)
+			fy := float64(cy) + hash2(cx, cy, seed+9871)
+			if d := math.Hypot(x-fx, y-fy); d < minD {
+				minD = d
+			}
+		}
+	}
+	if minD > 1 {
+		minD = 1
+	}
+	return minD
+}
