@@ -39,3 +39,17 @@ func TestFBMSeedsDiffer(t *testing.T) {
 		t.Error("different seeds produced identical FBM")
 	}
 }
+
+func TestRidgedFBMInRangeAndDeterministic(t *testing.T) {
+	for i := range 5000 {
+		x := float64(i%97) * 0.3
+		y := float64(i%53) * 0.7
+		v := RidgedFBM(x, y, 42, 5)
+		if v < 0 || v > 1 {
+			t.Fatalf("RidgedFBM(%g,%g) = %g out of [0,1]", x, y, v)
+		}
+		if v2 := RidgedFBM(x, y, 42, 5); v != v2 {
+			t.Fatalf("RidgedFBM not deterministic: %g vs %g", v, v2)
+		}
+	}
+}

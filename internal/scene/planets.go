@@ -102,6 +102,49 @@ const (
 	moonLipGrowPx  = 0.0015
 	moonWallBasePx = 1.0
 	moonWallGrowPx = 0.0015
+
+	// Large, near moons switch to a procedural HEIGHT FIELD rendered with
+	// bump-mapped lighting: ridged terrain, fine grain, and craters with central
+	// peaks and smooth floors. Detail ramps in between these radii (px) so it
+	// doesn't pop; below moonDetailMinR a moon keeps the cheaper flat-crater
+	// shading and looks exactly as before.
+	moonDetailMinR  = 55.0
+	moonDetailFullR = 110.0
+
+	// Surface terrain (outside craters): low-frequency ridged "mountains" plus a
+	// high-frequency grain. The ridge frequency is a fixed cell count across the
+	// disc (mountains scale with the planet); the grain frequency tracks the
+	// pixel size so the grain stays fine at any on-screen size.
+	moonRidgeCells = 7.0  // ridged-mountain cells across the disc
+	moonRidgeAmp   = 0.10 // mountain relief (height units)
+	moonRidgeOct   = 5
+	moonGrainPx    = 5.0   // target grain wavelength in pixels
+	moonGrainAmp   = 0.018 // grain relief (height units)
+
+	// Bump mapping: the surface normal is tilted by the height-field gradient
+	// (sampled by finite difference over moonBumpEps pixels) before lighting, so
+	// terrain and craters cast self-shadows. Strength ramps with the detail level.
+	moonBumpEps      = 1.3
+	moonBumpStrength = 0.45
+
+	// On the height-field path the crater floor is only gently darkened (the
+	// shape now comes from the bump-mapped walls/peak, not from painting it dark).
+	moonFloorDarkLarge = 0.10
+
+	// Crater height profile (in disc-ellipse units, de=1 is the rim). A flat,
+	// smooth floor inside floorEdge, walls sloping up to a raised rim ring, and a
+	// central peak for craters at/above the peak size. Heights scale with the
+	// crater size so big craters have proportionally more relief.
+	moonCraterRimOuter   = 1.28 // footprint cutoff (terrain resumes beyond this)
+	moonCraterFloorEdge  = 0.55 // de below which the floor is flat
+	moonCraterDepth      = 0.55 // floor depression depth
+	moonCraterRimW       = 0.09 // rim-ring width
+	moonCraterRimH       = 0.30 // rim-ring height
+	moonCraterPeakMinSz  = 0.16 // smallest crater size that grows a central peak
+	moonCraterPeakFullSz = 0.30 // size at which the central peak is full height
+	moonCraterPeakW      = 0.22 // central-peak width (de units)
+	moonCraterPeakH      = 0.45 // central-peak height
+	moonCraterRoughJag   = 0.28 // rim roughening on the height path (rougher edges)
 )
 
 // PlanetType selects how a planet is rendered.
@@ -424,11 +467,12 @@ func drawPlanet(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow [
 // reflect the dominant star, so they brighten the sky rather than darkening it.
 // The reflected light is screened over the sky color, which means the shadowed
 // side (and anything faded by atmospheric haze) simply disappears into the sky.
-func blendPlanetPixel(img *image.RGBA, w, h, xx, yy int, surf gfx.HSV, nx, ny, a float64, skyRow []gfx.RGB, hazeRow []float64, lm lightModel, seed int) {
-	// Diffuse lighting from the dominant star. n is the sphere normal; illum is
-	// n·L. The terminator (illum≈0) is sharpened by termW and jittered slightly
-	// by surface texture; the lit side keeps a spherical (center-bright) falloff.
-	nz := math.Sqrt(math.Max(1-nx*nx-ny*ny, 0))
+func blendPlanetPixel(img *image.RGBA, w, h, xx, yy int, surf gfx.HSV, nx, ny, nz, a float64, skyRow []gfx.RGB, hazeRow []float64, lm lightModel, seed int) {
+	// Diffuse lighting from the dominant star. (nx,ny,nz) is the surface normal —
+	// the sphere normal for gas giants and small moons, or a bump-perturbed normal
+	// for large moons. illum is n·L. The terminator (illum≈0) is sharpened by termW
+	// and jittered slightly by surface texture; the lit side keeps a spherical
+	// (center-bright) falloff.
 	illum := nx*lm.lx + ny*lm.ly + nz*lm.lz
 	illum += (gfx.FBM((nx+1)*6, (ny+1)*6, seed+7, 2) - 0.5) * 0.06
 	lit := smoothstep(-lm.termW, lm.termW, illum) * math.Min(0.55+0.45*math.Max(illum, 0), 1)
@@ -495,7 +539,8 @@ func drawGasGiant(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow
 			latp := clamp(lat+(tb-0.5)*p.turbAmp, 0, 1)
 
 			col := p.bands.At(latp)
-			blendPlanetPixel(img, w, h, xx, yy, col, nx, ny, a, skyRow, hazeRow, lm, p.turbSeed)
+			nz := math.Sqrt(math.Max(1-nx*nx-ny*ny, 0))
+			blendPlanetPixel(img, w, h, xx, yy, col, nx, ny, nz, a, skyRow, hazeRow, lm, p.turbSeed)
 		}
 	}
 }
@@ -513,6 +558,18 @@ func drawMoon(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []f
 	// Crater walls are lit by the dominant star's in-plane direction (already
 	// scaled by phase, so shadows fade out as the planet approaches full).
 	lightX, lightY := lm.lx, lm.ly
+
+	// Large, near moons get a bump-mapped procedural height field; detail ramps
+	// in with the on-screen radius. Small moons (detail==0) keep the cheaper
+	// flat-crater shading and render exactly as before.
+	detail := clamp((rf-moonDetailMinR)/(moonDetailFullR-moonDetailMinR), 0, 1)
+	var field moonField
+	var eps float64
+	if detail > 0 {
+		field = moonField{p: &p, cs: cs, sn: sn, ridgeScale: moonRidgeCells, grainScale: rf / moonGrainPx}
+		eps = moonBumpEps / rf
+	}
+
 	for oy := -p.r; oy <= p.r; oy++ {
 		yy := p.cy + oy
 		if yy < 0 || yy >= h {
@@ -573,18 +630,98 @@ func drawMoon(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []f
 				}
 			}
 
-			// Craters: the topmost (latest) crater covering this pixel wins, so a
-			// newer impact obliterates older ones it overlaps instead of ghosting.
-			for i := len(p.craters) - 1; i >= 0; i-- {
-				if s, owns := craterAt(nx, ny, lightX, lightY, lipW, wallW, p.craters[i]); owns {
-					surf.V *= s
-					break
+			nx2, ny2, nz2 := nx, ny, math.Sqrt(math.Max(1-nx*nx-ny*ny, 0))
+			if detail > 0 {
+				// Bump mapping: tilt the normal by the height-field gradient
+				// (finite difference in disc space), scaled down toward the limb
+				// (×nz) so grazing-angle slopes don't blow up. The crater shape now
+				// comes from the lit relief; the floor only gets a gentle darkening.
+				h0, floorSmooth := field.heightAt(nx, ny)
+				hx, _ := field.heightAt(nx+eps, ny)
+				hy, _ := field.heightAt(nx, ny+eps)
+				k := moonBumpStrength * detail * nz2
+				px := nx - k*(hx-h0)/eps
+				py := ny - k*(hy-h0)/eps
+				if inv := 1 / math.Sqrt(px*px+py*py+nz2*nz2); inv > 0 {
+					nx2, ny2, nz2 = px*inv, py*inv, nz2*inv
+				}
+				surf.V *= 1 - moonFloorDarkLarge*floorSmooth
+			} else {
+				// Craters: the topmost (latest) crater covering this pixel wins, so
+				// a newer impact obliterates older ones it overlaps (no ghosting).
+				for i := len(p.craters) - 1; i >= 0; i-- {
+					if s, owns := craterAt(nx, ny, lightX, lightY, lipW, wallW, p.craters[i]); owns {
+						surf.V *= s
+						break
+					}
 				}
 			}
 
-			blendPlanetPixel(img, w, h, xx, yy, surf, nx, ny, a, skyRow, hazeRow, lm, p.turbSeed)
+			blendPlanetPixel(img, w, h, xx, yy, surf, nx2, ny2, nz2, a, skyRow, hazeRow, lm, p.turbSeed)
 		}
 	}
+}
+
+// moonField evaluates a large moon's procedural surface height at a disc point.
+// Terrain (ridged mountains + fine grain) lives in rotated surface space (bx,by)
+// so it tracks the planet's tilt; craters live in disc space (nx,ny) like the
+// flat-crater model. The height is sampled by finite difference for bump mapping.
+type moonField struct {
+	p          *planet
+	cs, sn     float64
+	ridgeScale float64 // ridged-terrain cells across the disc (low frequency)
+	grainScale float64 // grain cells across the disc (high frequency, pixel-tracking)
+}
+
+// heightAt returns the surface height at disc point (nx,ny) plus a "floor"
+// smoothness mask in [0,1] (1 on a flat crater floor) the caller uses to suppress
+// terrain grain and to gently darken the floor. Outside every crater the mask is
+// 0 and the height is pure terrain.
+func (f moonField) heightAt(nx, ny float64) (float64, float64) {
+	bx := nx*f.cs + ny*f.sn
+	by := -nx*f.sn + ny*f.cs
+	ridge := gfx.RidgedFBM(bx*f.ridgeScale+3, by*f.ridgeScale-7, f.p.turbSeed+401, moonRidgeOct)
+	grain := gfx.FBM(bx*f.grainScale, by*f.grainScale, f.p.turbSeed+503, 2) - 0.5
+	terrain := ridge*moonRidgeAmp + grain*moonGrainAmp
+
+	// Topmost crater covering the point wins, matching the flat-crater model.
+	for i := len(f.p.craters) - 1; i >= 0; i-- {
+		if dh, smooth, owns := craterHeight(nx, ny, f.p.craters[i]); owns {
+			// Suppress terrain roughness on the smooth floor; let it run on the
+			// rough rim and walls.
+			return terrain*(1-smooth) + dh, smooth
+		}
+	}
+	return terrain, 0
+}
+
+// craterHeight returns one crater's contribution to the height field at disc
+// point (nx,ny): a flat, smooth floor, walls sloping up to a roughened raised rim
+// ring, and a central peak for craters large enough to form one. It also returns
+// a floor-smoothness mask (1 on the flat floor) and whether the point is within
+// the crater footprint. Heights scale with the crater size.
+func craterHeight(nx, ny float64, cr crater) (float64, float64, bool) {
+	ddx, ddy := nx-cr.cx, ny-cr.cy
+	// Decompose into the crater's radial (foreshortened) and tangential axes.
+	dr := ddx*cr.rx + ddy*cr.ry
+	dt := -ddx*cr.ry + ddy*cr.rx
+	de := math.Hypot(dr/cr.radial, dt/cr.size)
+	// Roughen the rim more than the flat-crater model so big craters read as
+	// ragged, not clean ellipses.
+	de *= 1 + moonCraterRoughJag*(gfx.FBM((nx+1)*moonCraterJagScl, (ny+1)*moonCraterJagScl, cr.seed, 3)-0.5)
+	if de > moonCraterRimOuter {
+		return 0, 0, false
+	}
+
+	floor := smoothstep(1, moonCraterFloorEdge, de) // 1 on the flat floor, 0 at the rim
+	bowl := -moonCraterDepth * floor
+	rim := moonCraterRimH * math.Exp(-sq((de-1)/moonCraterRimW))
+	peak := 0.0
+	if cr.size >= moonCraterPeakMinSz {
+		pk := smoothstep(moonCraterPeakMinSz, moonCraterPeakFullSz, cr.size)
+		peak = moonCraterPeakH * pk * math.Exp(-sq(de/moonCraterPeakW))
+	}
+	return (bowl + rim + peak) * cr.size, floor, true
 }
 
 // craterAt returns the brightness multiplier for one crater at disc point

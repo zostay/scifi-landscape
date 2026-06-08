@@ -124,7 +124,12 @@ which is what makes scenes reproducible.
     flat-floored crater: a uniformly darker floor, a thin (near-pixel-width)
     inner highlight/shadow ring and rim lip lit from the planet's rotation
     direction. Overlapping craters obliterate the ones beneath them, like fresh
-    impacts over old.
+    impacts over old. When a moon is **large on screen** it switches to a far more
+    detailed, bump-mapped surface: a procedural height field of ridged
+    "mountains" and fine grain that self-shadows under the dominant star, and
+    richer craters — roughened, raised rims, central peaks in the bigger ones, and
+    smooth (rather than just dark) floors. The detail fades in with size, so small
+    moons stay simple and only big, near worlds pay for the extra texture.
 
   Each planet's surface is tilted: the global star
   angle plus a per-planet rotation of up to 90° (biased small, so planets stay

@@ -53,3 +53,25 @@ func FBM(x, y float64, seed, octaves int) float64 {
 	}
 	return sum / norm
 }
+
+// RidgedFBM is fractional Brownian motion folded into sharp ridge lines: each
+// octave of value noise is turned into a ridge by reflecting it about its
+// midpoint (1-|2n-1|) and squaring, then the octaves are summed at halving
+// amplitude and doubling frequency, normalized to [0,1]. Unlike FBM (which is
+// blobby), the result has crests and creases — useful for mountain ridges and
+// the rough, ridged terrain of an airless world. octaves is clamped to >= 1.
+func RidgedFBM(x, y float64, seed, octaves int) float64 {
+	if octaves < 1 {
+		octaves = 1
+	}
+	sum, amp, freq, norm := 0.0, 1.0, 1.0, 0.0
+	for i := 0; i < octaves; i++ {
+		n := valueNoise(x*freq, y*freq, seed+i*131)
+		r := 1 - math.Abs(2*n-1) // 0 at the extremes, 1 at the midline: a ridge
+		sum += amp * r * r
+		norm += amp
+		amp *= 0.5
+		freq *= 2
+	}
+	return sum / norm
+}
