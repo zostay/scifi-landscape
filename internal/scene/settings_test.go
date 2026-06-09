@@ -2,7 +2,6 @@ package scene
 
 import (
 	"math"
-	"math/rand"
 	"testing"
 )
 
@@ -10,8 +9,7 @@ var exp = math.Exp
 
 func TestNewSettingsHorizonInRange(t *testing.T) {
 	for seed := range int64(2000) {
-		rng := rand.New(rand.NewSource(seed))
-		s := NewSettings(rng, "", 720)
+		s := NewSettings(seed, "", 720)
 		if s.Horizon < horizonMin-1e-9 || s.Horizon > horizonMax+1e-9 {
 			t.Fatalf("seed %d: horizon %.3f out of [%.2f,%.2f]", seed, s.Horizon, horizonMin, horizonMax)
 		}
@@ -23,7 +21,7 @@ func TestNewSettingsHorizonInRange(t *testing.T) {
 
 func TestNewSettingsStarParamsInRange(t *testing.T) {
 	for seed := range int64(2000) {
-		s := NewSettings(rand.New(rand.NewSource(seed)), "", 720)
+		s := NewSettings(seed, "", 720)
 		if s.TwinkleAngle < 0 || s.TwinkleAngle > twinkleMax {
 			t.Fatalf("seed %d: twinkle %.2f out of [0,%.0f]", seed, s.TwinkleAngle, twinkleMax)
 		}
@@ -37,8 +35,8 @@ func TestNewSettingsStarParamsInRange(t *testing.T) {
 }
 
 func TestNewSettingsDeterministic(t *testing.T) {
-	a := NewSettings(rand.New(rand.NewSource(123)), "", 720)
-	b := NewSettings(rand.New(rand.NewSource(123)), "", 720)
+	a := NewSettings(123, "", 720)
+	b := NewSettings(123, "", 720)
 	if a != b {
 		t.Fatalf("same seed gave different settings: %+v vs %+v", a, b)
 	}
@@ -48,9 +46,9 @@ func TestNewSettingsDeterministic(t *testing.T) {
 // not shift the random stream, so the horizon (and everything downstream) stays
 // reproducible regardless of the override.
 func TestTimeOverrideKeepsHorizonStable(t *testing.T) {
-	base := NewSettings(rand.New(rand.NewSource(55)), "", 720)
+	base := NewSettings(55, "", 720)
 	for _, name := range []string{"midday", "dusk", "twilight"} {
-		s := NewSettings(rand.New(rand.NewSource(55)), name, 720)
+		s := NewSettings(55, name, 720)
 		if s.Horizon != base.Horizon {
 			t.Errorf("override %q changed horizon: %.4f vs %.4f", name, s.Horizon, base.Horizon)
 		}

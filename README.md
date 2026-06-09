@@ -48,9 +48,13 @@ pipeline, so a given seed produces an identical image either way.
 ## How it works
 
 A scene is a sequence of **elements** drawn back-to-front onto a shared canvas.
-Global **settings** are chosen first and shape how every element is drawn. All
-randomness comes from one seeded `math/rand` source consumed in a fixed order,
-which is what makes scenes reproducible.
+Global **settings** are chosen first and shape how every element is drawn. The
+scene seed makes everything reproducible, but rather than one shared random
+stream, the settings and **each element draw from their own independent stream**,
+derived from the seed and the part's name (`seed.Derive`). Because the streams
+are independent, adding a new element — or changing how an existing one uses
+randomness — never shifts any other element's output, so a seed keeps its meaning
+as the project grows.
 
 ### Global settings (so far)
 

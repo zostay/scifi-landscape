@@ -7,9 +7,25 @@
 package seed
 
 import (
+	"encoding/binary"
 	"hash/fnv"
 	"strconv"
 )
+
+// Derive produces a stable child seed from a base seed and a string key. Each
+// part of a scene (the settings and every element) draws from its own stream
+// seeded by Derive(base, name), so the streams are independent: changing how many
+// random values one element consumes — or adding a whole new element — never
+// shifts another element's output for the same base seed. This keeps a seed's
+// meaning stable as features are added or improved.
+func Derive(base int64, key string) int64 {
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], uint64(base))
+	h := fnv.New64a()
+	h.Write(b[:])
+	h.Write([]byte(key))
+	return int64(h.Sum64())
+}
 
 // Resolve converts a seed string to an int64.
 func Resolve(s string) int64 {

@@ -2,7 +2,6 @@ package scene
 
 import (
 	"math"
-	"math/rand"
 	"strings"
 
 	"github.com/zostay/scifi-landscape/internal/gfx"
@@ -108,13 +107,16 @@ type Settings struct {
 	LightAmbient    float64
 }
 
-// NewSettings derives the global settings from rng for a scene of height h.
+// NewSettings derives the global settings for a scene of height h from its own
+// independent random stream (derived from seed), so the settings stay stable as
+// elements are added or changed.
 //
 // To keep the seed reproducible, the random stream is consumed in a fixed
 // order regardless of overrides: we always draw the time-of-day and horizon
 // values, then apply any override on top. timeOverride is an optional
 // time-of-day name; an empty/unknown value means "use the seed's choice".
-func NewSettings(rng *rand.Rand, timeOverride string, h int) Settings {
+func NewSettings(seed int64, timeOverride string, h int) Settings {
+	rng := deriveRng(seed, "settings")
 	tod := TimeOfDay(rng.Intn(3))
 
 	frac := horizonMean + rng.NormFloat64()*horizonStd

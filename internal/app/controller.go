@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"math/rand"
 	"sync"
 
 	"github.com/zostay/scifi-landscape/internal/canvas"
@@ -85,8 +84,7 @@ func (c *Controller) Start(seed int64) {
 func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 	defer close(done)
 
-	rng := rand.New(rand.NewSource(seed))
-	settings := scene.NewSettings(rng, c.timeOverride, c.H)
+	settings := scene.NewSettings(seed, c.timeOverride, c.H)
 
 	c.mu.Lock()
 	c.status.Time = settings.Time
@@ -98,7 +96,7 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 	c.canvas.Clear(blackRGBA)
 
 	sc := scene.New(settings)
-	if err := sc.Build(ctx, c.canvas, rng, c.W, c.H, c.setCurrent); err != nil {
+	if err := sc.Build(ctx, c.canvas, seed, c.W, c.H, c.setCurrent); err != nil {
 		return // cancelled
 	}
 

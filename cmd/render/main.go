@@ -36,12 +36,11 @@ func main() {
 		s = seed.Resolve(*seedStr)
 	}
 
-	rng := rand.New(rand.NewSource(s))
-	settings := scene.NewSettings(rng, *todStr, *height)
+	settings := scene.NewSettings(s, *todStr, *height)
 	cv := canvas.New(*width, *height)
 
 	sc := scene.New(settings)
-	if err := sc.Build(context.Background(), cv, rng, *width, *height, nil); err != nil {
+	if err := sc.Build(context.Background(), cv, s, *width, *height, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "render:", err)
 		os.Exit(1)
 	}

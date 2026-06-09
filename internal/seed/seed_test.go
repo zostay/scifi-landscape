@@ -47,3 +47,33 @@ func TestResolveOverflowFallsBackToHash(t *testing.T) {
 		t.Errorf("overflow seed is not stable: %d vs %d", a, b)
 	}
 }
+
+// Derive must be stable for a given (base, key), and independent across keys and
+// across bases — that independence is what keeps each element's random stream
+// from shifting when another element changes.
+func TestDeriveStableAndIndependent(t *testing.T) {
+	if a, b := Derive(42, "planets"), Derive(42, "planets"); a != b {
+		t.Errorf("Derive is not stable for the same base and key: %d vs %d", a, b)
+	}
+	if Derive(42, "planets") == Derive(42, "clouds") {
+		t.Error("different keys derived the same seed")
+	}
+	if Derive(42, "planets") == Derive(43, "planets") {
+		t.Error("different bases derived the same seed")
+	}
+
+	// Distinct (base, key) pairs should rarely collide; over a decent sweep of the
+	// keys a scene actually uses, expect none.
+	keys := []string{"settings", "sky-gradient", "ground-gradient", "sky", "stars",
+		"systemstars", "planets", "clouds", "mountains", "ground", "cities", "water"}
+	seen := make(map[int64]string)
+	for base := range int64(500) {
+		for _, k := range keys {
+			d := Derive(base, k)
+			if prev, ok := seen[d]; ok {
+				t.Fatalf("collision: base %d key %q vs %q", base, k, prev)
+			}
+			seen[d] = k
+		}
+	}
+}
