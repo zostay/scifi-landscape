@@ -9,7 +9,7 @@ import (
 	"github.com/zostay/scifi-landscape/internal/gfx"
 )
 
-// Mountains draws a mountain range along the horizon (not every scene has one).
+// Mountains draws a mountain range along the horizon (every scene has one).
 // A height and a smoothness shape it: smoothness picks how many key points the
 // ridge has (high = few, gentle curves; low = many, plus heavy noise for jagged
 // peaks), and height scales the peaks. The combinations span rolling hills,
@@ -21,7 +21,6 @@ type Mountains struct{}
 func (m *Mountains) Name() string { return "mountains" }
 
 const (
-	mountainsChance       = 0.55
 	mountainsAnimDuration = 700 * time.Millisecond
 	mountainsAnimCols     = 90 // animation column-batches
 
@@ -41,10 +40,8 @@ const (
 )
 
 func (m *Mountains) Render(c *Context) error {
-	if c.Rng.Float64() >= mountainsChance {
-		return nil
-	}
-
+	// Mountains are always drawn. (Each element has its own random stream, so
+	// there is nothing to keep in sync by drawing a presence roll first.)
 	w, h := c.W, c.H
 	horizon := c.Settings.HorizonY
 	if horizon < 4 {
