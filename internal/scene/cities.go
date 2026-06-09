@@ -97,6 +97,12 @@ func (c *Cities) Render(ctx *Context) error {
 			continue // sparse / outside the irregular footprint
 		}
 		base := horizon + ctx.Rng.Intn(band+1)
+		// Stay on land: skip candidates that would stand in the water (when there
+		// is an ocean, buildings keep to islands and the coastline). Without an
+		// ocean LandAt is true everywhere, so this is a no-op.
+		if ctx.LandAt != nil && !ctx.LandAt(x, base) {
+			continue
+		}
 		depth := float64(base-horizon) / float64(band) // 0 far (horizon) .. 1 near
 		// Bigger toward the viewer (depth) and in dense areas.
 		scale := (1 + depth*1.2) * (0.5 + 0.9*d)

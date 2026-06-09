@@ -3,17 +3,21 @@ package scene
 import (
 	"image"
 	"math"
+	"math/rand"
 	"time"
 
 	"github.com/zostay/scifi-landscape/internal/gfx"
 )
 
-// Water turns the foreground (everything below the horizon) into an ocean that
-// reflects the scene above the horizon — sky, suns, planets, mountains, and the
-// city skyline. Not every scene has it. Drawn last, it samples the already-drawn
-// pixels above the horizon, mirrors them down with wave-ripple distortion (calm
-// and mirror-like near the horizon, choppier and more water-colored toward the
-// viewer), and tints them with a water color.
+// Water turns the foreground below the horizon into an ocean that reflects the
+// scene above the horizon — sky, suns, planets, mountains, and the city skyline.
+// Not every scene has it. It samples the already-drawn pixels above the horizon,
+// mirrors them down with wave-ripple distortion (calm and mirror-like near the
+// horizon, choppier and more water-colored toward the viewer), and tints them
+// with a water color. The ocean is not solid: where the land elevation (see the
+// ocean model, resolved up front in Build) clears sea level the ground shows
+// through as an island or coastline, ringed by a beach and surf — and the city,
+// drawn before the water, keeps to that land.
 type Water struct{}
 
 func (w *Water) Name() string { return "water" }
@@ -32,27 +36,37 @@ const (
 	waterTintHorizon    = 0.15
 	waterTintForeground = 0.62
 	waterDarkForeground = 0.35
+
+	// Islands: some of the ocean can be land. A noise field gives a land elevation;
+	// where it clears the (per-scene) sea level the ground shows through as an
+	// island, ringed by a beach and surf. A coastal bias raises the elevation
+	// toward the horizon, so distant land/coastline (at the feet of the mountains)
+	// is common while the near water stays open with only scattered islands.
+	islandFreqX      = 0.004 // island cells across the width (broad land masses)
+	islandFreqY      = 2.6   // island cells over the foreground depth
+	islandOctaves    = 4     // fractal octaves for island/coast shape
+	islandSeaLevelLo = 0.54
+	islandSeaLevelHi = 0.66
+	islandCoastMax   = 0.38  // strongest horizon-ward land bias (0 = open ocean)
+	islandBeachBand  = 0.035 // elevation above sea level painted as beach
+	islandBeachAmt   = 0.45  // how strongly the beach tints the shore ground
+	islandFoamBand   = 0.03  // elevation below sea level painted as surf foam
+	islandFoamAmt    = 0.40  // how strongly the surf lightens the water
+	islandFoamLift   = 0.60  // how far the foam color is lifted toward white
 )
 
 func (wt *Water) Render(c *Context) error {
-	if c.Rng.Float64() >= waterChance {
+	oc := c.Ocean
+	if oc == nil || !oc.present {
 		return nil
 	}
 	w, h := c.W, c.H
-	horizon := c.Settings.HorizonY
-	if horizon >= h-2 || horizon < 1 {
-		return nil
-	}
-	groundH := h - horizon
-
-	// Water color: usually blue/teal, occasionally something alien.
-	hue := rnd(c.Rng, 180, 245)
-	if c.Rng.Float64() < 0.2 {
-		hue = c.Rng.Float64() * 360
-	}
-	wcol := gfx.HSV{H: hue, S: rnd(c.Rng, 0.30, 0.70), V: rnd(c.Rng, 0.20, 0.50)}.RGB()
-	seed := c.Rng.Int()
+	horizon, groundH := oc.horizon, oc.groundH
+	wcol := oc.color
+	seed := oc.waveSeed
 	waveMax := math.Max(waterWaveFrac*float64(groundH), 2)
+	// Surf foam: the water color lifted toward white.
+	foam := gfx.RGB{R: wcol.R + (1-wcol.R)*islandFoamLift, G: wcol.G + (1-wcol.G)*islandFoamLift, B: wcol.B + (1-wcol.B)*islandFoamLift}
 
 	bandH := max(groundH/80, 1)
 	per := waterAnimDuration / time.Duration((groundH+bandH-1)/bandH)
@@ -69,6 +83,16 @@ func (wt *Water) Render(c *Context) error {
 				tint := waterTintHorizon + (waterTintForeground-waterTintHorizon)*d
 				dark := 1 - waterDarkForeground*d
 				for x := range w {
+					e := oc.elev(x, y)
+					if e > oc.seaLevel {
+						// Land (island or coast): leave the ground showing, but tint a
+						// beach at the shoreline.
+						if beach := smoothstep(oc.seaLevel+islandBeachBand, oc.seaLevel, e); beach > 0 {
+							blendPixel(img, w, h, x, y, oc.sand, beach*islandBeachAmt)
+						}
+						continue
+					}
+
 					// Ripple displacement (mostly per-row, for horizontal crests).
 					dx := (gfx.FBM(float64(y)*waterFreqY, float64(x)*waterFreqX, seed, 3) - 0.5) * 2 * amp
 					dy := (gfx.FBM(float64(y)*waterFreqY*0.7+10, float64(x)*waterFreqX, seed+5, 2) - 0.5) * amp
@@ -85,6 +109,11 @@ func (wt *Water) Render(c *Context) error {
 						G: (gg + (wcol.G-gg)*tint) * dark,
 						B: (bb + (wcol.B-bb)*tint) * dark,
 					}
+					// Surf foam where the water laps just below the shoreline.
+					if surf := smoothstep(oc.seaLevel-islandFoamBand, oc.seaLevel, e); surf > 0 {
+						f := surf * islandFoamAmt
+						out = gfx.RGB{R: out.R + (foam.R-out.R)*f, G: out.G + (foam.G-out.G)*f, B: out.B + (foam.B-out.B)*f}
+					}
 					r8, g8, b8, _ := out.RGBA8()
 					o := img.PixOffset(x, y)
 					img.Pix[o] = r8
@@ -99,6 +128,64 @@ func (wt *Water) Render(c *Context) error {
 		}
 	}
 	return nil
+}
+
+// ocean is a scene's resolved ocean/land model. When present, the below-horizon
+// foreground is water except where the land elevation clears sea level — islands,
+// and (biased toward the horizon) a coastline at the feet of the mountains.
+type ocean struct {
+	present  bool
+	horizon  int
+	groundH  int
+	color    gfx.RGB
+	sand     gfx.RGB
+	waveSeed int
+	landSeed int
+	seaLevel float64
+	coast    float64
+}
+
+// buildOcean decides whether a scene has an ocean and, if so, its color, waves,
+// and island/coast shape. Drawing order is fixed so a seed reproduces the same
+// ocean.
+func buildOcean(rng *rand.Rand, s Settings, h int) *ocean {
+	horizon := s.HorizonY
+	o := &ocean{horizon: horizon, groundH: h - horizon}
+	if rng.Float64() >= waterChance || horizon >= h-2 || horizon < 1 {
+		return o // no ocean: the whole foreground stays land
+	}
+	o.present = true
+
+	// Water color: usually blue/teal, occasionally something alien.
+	hue := rnd(rng, 180, 245)
+	if rng.Float64() < 0.2 {
+		hue = rng.Float64() * 360
+	}
+	o.color = gfx.HSV{H: hue, S: rnd(rng, 0.30, 0.70), V: rnd(rng, 0.20, 0.50)}.RGB()
+	o.waveSeed = rng.Int()
+	o.landSeed = rng.Int()
+	o.seaLevel = rnd(rng, islandSeaLevelLo, islandSeaLevelHi)
+	o.coast = rnd(rng, 0, islandCoastMax)
+	o.sand = gfx.HSV{H: rnd(rng, 35, 50), S: rnd(rng, 0.25, 0.45), V: rnd(rng, 0.60, 0.82)}.RGB()
+	return o
+}
+
+// elev is the land elevation at a below-horizon point: fractal noise plus a bias
+// that rises toward the horizon, so distant coastline is common while the near
+// water stays open with scattered islands.
+func (o *ocean) elev(x, y int) float64 {
+	d := float64(y-o.horizon) / float64(o.groundH)
+	return gfx.FBM(float64(x)*islandFreqX, d*islandFreqY, o.landSeed, islandOctaves) + o.coast*(1-d)
+}
+
+// LandAt reports whether (x, y) is land. Above the horizon, and everywhere when
+// there is no ocean, it is land; below the horizon with an ocean, land is where
+// the elevation clears sea level.
+func (o *ocean) LandAt(x, y int) bool {
+	if !o.present || y <= o.horizon {
+		return true
+	}
+	return o.elev(x, y) > o.seaLevel
 }
 
 func clampInt(v, lo, hi int) int {

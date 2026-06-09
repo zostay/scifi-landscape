@@ -202,14 +202,22 @@ as the project grows.
   cores and sparse stretches and gaps — and buildings run taller and wider where
   the city is dense. They are drawn back-to-front: the farthest (highest, at the
   horizon) first, working down and closer, growing slightly as they near, with
-  the farthest fading into the horizon haze.
+  the farthest fading into the horizon haze. When there is an ocean the city
+  keeps to **land** — its islands and coastline — instead of standing in the
+  water (it consults the shared land mask, and is drawn before the water so it
+  still reflects).
 
-- **Water** — an ocean filling the foreground (only some scenes), drawn last. It
-  reflects the scene above the horizon — sky, suns, planets, mountains, and the
-  city skyline — by mirroring the already-drawn pixels down across the horizon
-  with wave-ripple distortion (calm and mirror-like near the horizon, choppier
-  toward the viewer) and a water tint that grows, and darkens, with distance
-  from the horizon.
+- **Water** — an ocean below the horizon (only some scenes). It reflects the
+  scene above the horizon — sky, suns, planets, mountains, and the city skyline —
+  by mirroring the already-drawn pixels down across the horizon with wave-ripple
+  distortion (calm and mirror-like near the horizon, choppier toward the viewer)
+  and a water tint that grows, and darkens, with distance from the horizon. The
+  ocean is not solid ground: a noise **land elevation**, biased upward toward the
+  horizon, decides where land clears sea level, so the foreground is open water
+  with scattered **islands** plus a distant **coastline** at the feet of the
+  mountains. Land shows the ground through the water and is ringed by a beach and
+  surf. The ocean/land model is resolved up front (in `Scene.Build`) and shared,
+  so both the city (land placement) and the water (what to flood) agree on it.
 
 ## Code layout
 

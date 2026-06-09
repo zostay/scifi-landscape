@@ -43,6 +43,18 @@ type Context struct {
 	// uses the multi-color "variable" mode.
 	GroundGradient gfx.Gradient
 	GroundVariable bool
+
+	// Ocean is the scene's resolved ocean/land model, decided up front (like the
+	// gradients) so both Cities and Water can use it: Cities to place buildings
+	// only on land, Water to leave islands and the coast unflooded while still
+	// reflecting the city skyline drawn before it.
+	Ocean *ocean
+
+	// LandAt reports whether the below-horizon point (x, y) is land rather than
+	// ocean. Without an ocean every point below the horizon is land; with one, only
+	// islands and the coastline are. Land-based elements (e.g. Cities) consult it
+	// so they sit on land and never on the water.
+	LandAt func(x, y int) bool
 }
 
 // Element is one piece of a scene (sky, ground, structures, ...). Render draws
@@ -106,6 +118,11 @@ func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h 
 	gg := deriveRng(seed, "ground-gradient")
 	sctx.GroundVariable = gg.Float64() < groundVariableChance
 	sctx.GroundGradient = buildGroundGradient(gg, sc.Settings.Time, sctx.GroundVariable)
+
+	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
+	// to land while Water still reflects the city skyline.
+	sctx.Ocean = buildOcean(deriveRng(seed, "water"), sc.Settings, h)
+	sctx.LandAt = sctx.Ocean.LandAt
 
 	for _, el := range sc.Elements {
 		if onElement != nil {
