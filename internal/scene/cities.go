@@ -20,8 +20,9 @@ type Cities struct{}
 func (c *Cities) Name() string { return "cities" }
 
 const (
-	cityChance         = 0.45
-	citiesAnimDuration = 800 * time.Millisecond
+	cityChance             = 0.45
+	citiesAnimDuration     = 800 * time.Millisecond
+	citiesDomeAnimDuration = 500 * time.Millisecond
 
 	cityFullChance = 0.30 // chance the footprint spans the whole width
 	cityBandLo     = 0.04 // city depth band, as a fraction of the ground height
@@ -122,6 +123,9 @@ func (c *Cities) Render(ctx *Context) error {
 		return nil
 	}
 
+	// Some cities are domed: plan the geodesic domes (drawn after the buildings).
+	domes := planDomes(ctx.Rng, blds, horizon, band, w)
+
 	// Back-to-front: farthest (nearest the horizon) first.
 	sort.Slice(blds, func(i, j int) bool { return blds[i].base < blds[j].base })
 
@@ -140,6 +144,23 @@ func (c *Cities) Render(ctx *Context) error {
 		})
 		if err := sleep(ctx.Ctx, per); err != nil {
 			return err
+		}
+	}
+
+	// Domes go up over the finished buildings, reflecting the sky.
+	if len(domes) > 0 {
+		lm := newLightModel(ctx.Settings)
+		per := citiesDomeAnimDuration / time.Duration(len(domes))
+		for _, dm := range domes {
+			if err := ctx.Ctx.Err(); err != nil {
+				return err
+			}
+			ctx.Canvas.Draw(func(img *image.RGBA) {
+				drawDome(img, w, h, dm, ctx.SkyGradient, lm)
+			})
+			if err := sleep(ctx.Ctx, per); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

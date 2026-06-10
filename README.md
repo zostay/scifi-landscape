@@ -205,7 +205,12 @@ as the project grows.
   the farthest fading into the horizon haze. When there is an ocean the city
   keeps to **land** — its islands and coastline — instead of standing in the
   water (it consults the shared land mask, and is drawn before the water so it
-  still reflects).
+  still reflects). Some cities are **domed**: one to a few geodesic glass
+  hemispheres go up over clusters of buildings. Each dome is a subdivided
+  icosahedron projected onto a sphere — so its triangle struts shrink and
+  foreshorten believably toward the rim — over a semi-transparent shell that
+  reflects the sky (brighter and glassier at the grazing rim, with a sun glint)
+  while the buildings show through inside.
 
 - **Water** — an ocean below the horizon (only some scenes). It reflects the
   scene above the horizon — sky, suns, planets, mountains, and the city skyline —
