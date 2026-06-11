@@ -131,7 +131,7 @@ func (g *Game) commitSeed() {
 func (g *Game) save() {
 	st := g.ctrl.Status()
 	name := fmt.Sprintf("scifi-%d.png", st.Seed)
-	if err := g.ctrl.Canvas().SavePNG(name); err != nil {
+	if err := g.ctrl.SaveSceneFile(name); err != nil {
 		g.flash("save failed: " + err.Error())
 		return
 	}

@@ -143,10 +143,35 @@ func deriveRng(master int64, key string) *rand.Rand {
 	return rand.New(rand.NewSource(seed.Derive(master, key)))
 }
 
+// instantKeyType is the unexported context-key type for the instant-render flag.
+type instantKeyType struct{}
+
+// instantKey marks a context as instant-render (no animation delays).
+var instantKey instantKeyType
+
+// WithInstant returns a context in which scene animations render with no delay.
+// It affects only the pacing of the build (the sleep between animation bands),
+// never the pixels produced — the final image for a given seed is byte-identical
+// whether or not the build is animated. Headless renders and golden tests use it
+// to skip the per-band waits that exist purely for the live, watch-it-draw UI.
+func WithInstant(ctx context.Context) context.Context {
+	return context.WithValue(ctx, instantKey, true)
+}
+
 // sleep pauses for d, but returns early with ctx.Err() if the context is
 // cancelled. Elements use it to pace their animation without ignoring
-// regenerate/quit requests.
+// regenerate/quit requests. In an instant context (see WithInstant) it skips the
+// wait entirely while still honoring cancellation, so the same pixels are drawn
+// with no animation delay.
 func sleep(ctx context.Context, d time.Duration) error {
+	if instant, _ := ctx.Value(instantKey).(bool); instant {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {

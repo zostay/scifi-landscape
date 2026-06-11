@@ -272,16 +272,50 @@ func (rg *rings) sample(t, rf float64) (gfx.HSV, float64, bool) {
 	return gfx.HSV{}, 0, false
 }
 
+// Render generates the scene's planets and draws them. It is the Element-level
+// entry point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (all the random draws) cleanly separated from rendering
+// (all the drawing), bridged by the planet entity schemas.
 func (p *Planets) Render(c *Context) error {
+	list, err := p.Generate(c)
+	if err != nil {
+		return err
+	}
+	return p.RenderList(c, list)
+}
+
+// Generate resolves the scene's planets into entities. It performs every planet
+// random draw on the element stream and has no side effects (it draws nothing),
+// so identical globals always yield an identical scene list. An empty list means
+// the scene has no planets.
+func (p *Planets) Generate(c *Context) (SceneList, error) {
 	n := planetCount(c.Rng)
 	if n == 0 {
+		return nil, nil
+	}
+	list := make(SceneList, n)
+	for i := range list {
+		list[i] = planetToEntity(makePlanet(c.Rng, c.W, c.Settings, i == 0))
+	}
+	return list, nil
+}
+
+// RenderList draws the planet entities onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. Entities that are not planets are an error.
+func (p *Planets) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
 		return nil
 	}
 
 	w, h := c.W, c.H
-	planets := make([]planet, n)
-	for i := range planets {
-		planets[i] = makePlanet(c.Rng, w, c.Settings, i == 0)
+	planets := make([]planet, len(list))
+	for i, e := range list {
+		pl, err := entityToPlanet(e)
+		if err != nil {
+			return err
+		}
+		planets[i] = pl
 	}
 
 	// Precompute, per row, the sky color planets blend toward and how much
@@ -299,7 +333,7 @@ func (p *Planets) Render(c *Context) error {
 
 	lm := newLightModel(c.Settings)
 
-	per := planetsAnimDuration / time.Duration(n)
+	per := planetsAnimDuration / time.Duration(len(planets))
 	for i := range planets {
 		if err := c.Ctx.Err(); err != nil {
 			return err

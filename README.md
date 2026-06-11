@@ -11,11 +11,13 @@ This is a modern reimagining of an old 256-color graphics experiment.
 ## Running
 
 ```sh
-go run .                 # random seed, 1280x720 window
-go run . -seed 12345     # reproduce a specific scene
-go run . -seed mars      # any text works too (hashed to a seed)
-go run . -time dusk      # force the time of day (midday | dusk | twilight)
-go run . -w 1920 -h 1080 # custom size
+go run .                  # random seed, 1280x720 window
+go run . -seed 12345      # reproduce a specific scene
+go run . -seed mars       # any text works too (hashed to a seed)
+go run . -time dusk       # force the time of day (midday | dusk | twilight)
+go run . -w 1920 -h 1080  # custom size
+go run . -config my.yaml  # tune generation with a config file (see Configuration)
+go run . -from scene.png  # reproduce a saved scene file (its seed + config)
 ```
 
 A seed can be **a number or any text**. A plain integer (within int64 range) is
@@ -30,7 +32,7 @@ is printed to the terminal on startup and shown on the on-screen HUD.
 | `N` / `Space` | Generate a new random scene           |
 | `R`       | Replay the current seed (re-animate)      |
 | `E`       | Enter a seed (type a number or text, `Enter` to apply, `Esc` to cancel) |
-| `S`       | Save the current image to `scifi-<seed>.png` |
+| `S`       | Save the current scene to `scifi-<seed>.png` (a **scene file** — see below) |
 | `Q` / `Esc` | Quit                                    |
 
 ### Headless rendering
@@ -40,10 +42,40 @@ To render straight to a PNG without opening a window (useful for batches):
 ```sh
 go run ./cmd/render -seed 12345 -o scene.png
 go run ./cmd/render -seed mars -time twilight -w 1920 -h 1080
+go run ./cmd/render -config my.yaml -seed 7 -o tuned.png
+go run ./cmd/render -from scene.png -o copy.png    # reproduce a saved scene
 ```
 
 The interactive app and the headless renderer share the exact same element
 pipeline, so a given seed produces an identical image either way.
+
+## Configuration & scene files
+
+The constants that shape generation — probabilities and limits like the horizon
+distribution, the star-density bias, and the dominant-star lighting ranges — live
+in a **configuration** rather than being hardcoded. Pass a YAML file with `-config`
+to tune them. The file may be **partial**: only the values you set are overridden,
+and everything else is filled from the built-in defaults. For example, to pin the
+horizon halfway up:
+
+```yaml
+horizon:
+  min: 0.5
+  max: 0.5
+  mean: 0.5
+  std: 0
+```
+
+Saving (in the app or with `cmd/render`) writes a **scene file**: an ordinary PNG
+that any viewer can open, with the data needed to reproduce the scene embedded as
+PNG text chunks under the `scifi-landscape/` prefix — the **seed**, the complete
+**config**, and the derived **globals** (as YAML). Pass a scene file back with
+`-from` to reproduce it: the embedded seed and config are loaded (an explicit
+`-seed` or `-config` still takes precedence), so the scene regenerates pixel-for-
+pixel. This makes a saved image self-describing — it carries its own recipe.
+
+`VERSIONING.md` describes the reproducibility contract that keeps old seeds and old
+scene files rendering the same as the generator evolves.
 
 ## How it works
 
@@ -228,13 +260,20 @@ as the project grows.
 
 ```
 main.go              interactive entry point (flags, window)
-cmd/render/          headless PNG renderer
+cmd/render/          headless scene-file renderer
 internal/seed/       resolve a number-or-text seed to an int64
 internal/gfx/        RGB/HSV color + gradient interpolation + fractal noise
 internal/canvas/     concurrency-safe RGBA drawing surface
-internal/scene/      settings, the Element interface, the Sky/Stars/SystemStars/Planets/Clouds/Mountains/Ground/Cities/Water elements
+internal/config/     the tunable Config (probabilities/limits), partial→complete merge, YAML
+internal/scene/      directors, globals, entities, generators, renderers; the Sky/Stars/SystemStars/Planets/Clouds/Mountains/Ground/Cities/Water elements
+internal/scenefile/  read/write scene files (PNG + embedded seed/config/globals/scene-list)
+internal/cli/        shared config + seed resolution for both front-ends
 internal/app/        Ebiten front-end + generation controller
 ```
 
-New scene elements implement `scene.Element` and are added to the pipeline in
-`scene.New`.
+A scene is built in layers — `seed + config` → **director** → **globals** →
+**generators** → **entities** (the scene list) → **renderers** → image — so each
+stage can be recorded and replayed independently. New scene elements implement
+`scene.Element` and are added to the pipeline in `scene.New`; as elements migrate
+to the layered model they also gain a versioned generator, renderer, and entity
+schema (Planets is the first fully migrated; see `VERSIONING.md`).

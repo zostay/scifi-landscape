@@ -3,15 +3,18 @@ package scene
 import (
 	"math"
 	"testing"
+
+	"github.com/zostay/scifi-landscape/internal/config"
 )
 
 var exp = math.Exp
 
 func TestNewSettingsHorizonInRange(t *testing.T) {
+	h := config.DefaultConfig().Horizon
 	for seed := range int64(2000) {
 		s := NewSettings(seed, "", 720)
-		if s.Horizon < horizonMin-1e-9 || s.Horizon > horizonMax+1e-9 {
-			t.Fatalf("seed %d: horizon %.3f out of [%.2f,%.2f]", seed, s.Horizon, horizonMin, horizonMax)
+		if s.Horizon < h.Min-1e-9 || s.Horizon > h.Max+1e-9 {
+			t.Fatalf("seed %d: horizon %.3f out of [%.2f,%.2f]", seed, s.Horizon, h.Min, h.Max)
 		}
 		if s.HorizonY < 1 || s.HorizonY > 719 {
 			t.Fatalf("seed %d: HorizonY %d out of bounds", seed, s.HorizonY)
@@ -20,14 +23,15 @@ func TestNewSettingsHorizonInRange(t *testing.T) {
 }
 
 func TestNewSettingsStarParamsInRange(t *testing.T) {
+	cfg := config.DefaultConfig()
 	for seed := range int64(2000) {
 		s := NewSettings(seed, "", 720)
-		if s.TwinkleAngle < 0 || s.TwinkleAngle > twinkleMax {
-			t.Fatalf("seed %d: twinkle %.2f out of [0,%.0f]", seed, s.TwinkleAngle, twinkleMax)
+		if s.TwinkleAngle < 0 || s.TwinkleAngle > cfg.Twinkle.Max {
+			t.Fatalf("seed %d: twinkle %.2f out of [0,%.0f]", seed, s.TwinkleAngle, cfg.Twinkle.Max)
 		}
-		// Density is log-normal with the exponent clamped to ±densityClamp.
-		lo := exp(-densityClamp * densityStd)
-		hi := exp(densityClamp * densityStd)
+		// Density is log-normal with the exponent clamped to ±Clamp.
+		lo := exp(-cfg.StarDensity.Clamp * cfg.StarDensity.Std)
+		hi := exp(cfg.StarDensity.Clamp * cfg.StarDensity.Std)
 		if s.StarDensity < lo-1e-9 || s.StarDensity > hi+1e-9 {
 			t.Fatalf("seed %d: density %.3f out of [%.3f,%.3f]", seed, s.StarDensity, lo, hi)
 		}

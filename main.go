@@ -5,6 +5,11 @@
 //	scifi-landscape                 # random seed
 //	scifi-landscape -seed 12345     # reproduce a specific scene
 //	scifi-landscape -time dusk      # force the time of day
+//	scifi-landscape -config my.yaml # tune generation with a config file
+//	scifi-landscape -from scene.png # reproduce a saved scene file (seed + config)
+//
+// Saving (S) writes a scene file: a PNG with the seed, config, and globals
+// embedded, so the scene can be reproduced later with -from.
 //
 // While running:
 //
@@ -25,6 +30,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/zostay/scifi-landscape/internal/app"
+	"github.com/zostay/scifi-landscape/internal/cli"
 	"github.com/zostay/scifi-landscape/internal/seed"
 )
 
@@ -40,22 +46,29 @@ func resolveSeed(s string) int64 {
 
 func main() {
 	var (
-		seedStr = flag.String("seed", "", "scene seed: a number, or any text (hashed); empty picks a random one")
-		todStr  = flag.String("time", "", "force time of day: midday, dusk, or twilight")
-		width   = flag.Int("w", 1280, "scene width in pixels")
-		height  = flag.Int("h", 720, "scene height in pixels")
+		seedStr    = flag.String("seed", "", "scene seed: a number, or any text (hashed); empty picks a random one")
+		todStr     = flag.String("time", "", "force time of day: midday, dusk, or twilight")
+		width      = flag.Int("w", 1280, "scene width in pixels")
+		height     = flag.Int("h", 720, "scene height in pixels")
+		configPath = flag.String("config", "", "YAML config file (partial or complete) to tune generation")
+		fromPath   = flag.String("from", "", "reproduce from a scene file (PNG): supplies seed and config unless overridden")
 	)
 	flag.Parse()
 
-	s := resolveSeed(*seedStr)
+	cfg, seedSrc, err := cli.Resolve(*configPath, *fromPath, *seedStr)
+	if err != nil {
+		log.Fatalln("scifi-landscape:", err)
+	}
 
-	ctrl := app.NewController(*width, *height, *todStr)
+	s := resolveSeed(seedSrc)
+
+	ctrl := app.NewController(*width, *height, *todStr, cfg)
 	ctrl.Start(s)
 
-	if *seedStr == "" || seed.IsNumeric(*seedStr) {
+	if seedSrc == "" || seed.IsNumeric(seedSrc) {
 		fmt.Printf("scifi-landscape: seed %d (reproduce with -seed %d)\n", s, s)
 	} else {
-		fmt.Printf("scifi-landscape: seed %q → %d (reproduce with -seed %q or -seed %d)\n", *seedStr, s, *seedStr, s)
+		fmt.Printf("scifi-landscape: seed %q → %d (reproduce with -seed %q or -seed %d)\n", seedSrc, s, seedSrc, s)
 	}
 
 	ebiten.SetWindowSize(*width, *height)

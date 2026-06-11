@@ -75,6 +75,17 @@ func (c *Canvas) Snapshot(dst []byte) {
 	copy(dst, c.img.Pix)
 }
 
+// SnapshotImage returns a copy of the current canvas as an *image.RGBA. The copy
+// is independent of the canvas, so it stays stable while the canvas keeps
+// mutating — used to hand a stable image to the scene-file writer.
+func (c *Canvas) SnapshotImage() *image.RGBA {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := image.NewRGBA(c.img.Bounds())
+	copy(out.Pix, c.img.Pix)
+	return out
+}
+
 // SavePNG writes the current canvas to the named file as a PNG.
 func (c *Canvas) SavePNG(name string) error {
 	f, err := os.Create(name)
