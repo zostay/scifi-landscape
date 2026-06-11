@@ -16,10 +16,11 @@ import (
 
 // Canvas is a fixed-size RGBA image safe for concurrent draw/read access.
 type Canvas struct {
-	mu  sync.RWMutex
-	img *image.RGBA
-	W   int
-	H   int
+	mu      sync.RWMutex
+	img     *image.RGBA
+	version uint64 // bumped on every mutation, so readers can skip unchanged frames
+	W       int
+	H       int
 }
 
 // New returns a w x h canvas initialized to opaque black.
@@ -44,6 +45,7 @@ func (c *Canvas) Clear(col color.RGBA) {
 		pix[i+2] = col.B
 		pix[i+3] = col.A
 	}
+	c.version++
 }
 
 // Draw runs fn with exclusive access to the underlying image. Callers should
@@ -53,6 +55,16 @@ func (c *Canvas) Draw(fn func(img *image.RGBA)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	fn(c.img)
+	c.version++
+}
+
+// Version returns a counter that increases on every Clear/Draw. The UI can
+// compare it across frames to avoid re-snapshotting and re-uploading the canvas
+// when nothing has changed (e.g. once a scene has finished building).
+func (c *Canvas) Version() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.version
 }
 
 // Snapshot copies the current pixels into dst, which must be exactly

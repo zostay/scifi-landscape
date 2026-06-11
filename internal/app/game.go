@@ -27,6 +27,9 @@ type Game struct {
 	ctrl    *Controller
 	display *ebiten.Image
 	buf     []byte
+	// drawnVersion is the canvas version last copied into display, so Draw only
+	// re-snapshots and re-uploads when the canvas has actually changed.
+	drawnVersion uint64
 
 	// newSeed returns a fresh random seed for regeneration. Injectable for
 	// testing; defaults to a time-based source.
@@ -141,8 +144,14 @@ func (g *Game) flash(msg string) {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	g.ctrl.Canvas().Snapshot(g.buf)
-	g.display.WritePixels(g.buf)
+	// Only copy the canvas and re-upload it to the GPU when it has changed; once a
+	// scene has finished building this skips a full-frame copy and upload every
+	// frame, so an idle (especially backgrounded) window costs almost nothing.
+	if v := g.ctrl.Canvas().Version(); v != g.drawnVersion {
+		g.ctrl.Canvas().Snapshot(g.buf)
+		g.display.WritePixels(g.buf)
+		g.drawnVersion = v
+	}
 	screen.DrawImage(g.display, nil)
 	g.drawHUD(screen)
 }

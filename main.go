@@ -61,6 +61,10 @@ func main() {
 	ebiten.SetWindowSize(*width, *height)
 	ebiten.SetWindowTitle("scifi-landscape")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	// Pause the game loop while the window is in the background so it doesn't
+	// churn frames (or pile up ticks to replay on return) when left unattended.
+	// The scene still finishes building on its own goroutine regardless.
+	ebiten.SetRunnableOnUnfocused(false)
 
 	if err := ebiten.RunGame(app.NewGame(ctrl)); err != nil {
 		log.Println(err)
