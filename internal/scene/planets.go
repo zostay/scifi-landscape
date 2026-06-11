@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/zostay/scifi-landscape/internal/gfx"
+	"github.com/zostay/scifi-landscape/internal/seed"
 )
 
 // Planets draws planets in the sky. They sit in front of the stars and suns but
@@ -147,6 +148,46 @@ const (
 	moonCraterRoughJag   = 0.28 // rim roughening on the height path (rougher edges)
 )
 
+// Rings. A planet may carry a ring system: gas giants commonly, moons rarely.
+// Rings lie in the planet's equatorial plane (aligned with the band/pole axis,
+// so they encircle the equator) and are given a viewing tilt so they read as an
+// ellipse rather than the edge-on line the equator-on body would otherwise show.
+// A system is either a single thin ring or a wide disk of many bands; ring colors
+// are always washed out (low saturation).
+const (
+	gasRingChance  = 0.25 // chance a gas giant has rings
+	moonRingChance = 0.10 // chance a moon has rings
+	ringMinR       = 10   // planets smaller than this (px radius) skip rings
+
+	ringThinChance = 0.30 // share of ringed planets with a single thin ring
+
+	// sin of the ring's opening angle (0 = edge-on, 1 = face-on). Kept clear of
+	// edge-on so a tilted disk is always visible; never fully open so it reads as
+	// a ring around the body, not a flat target.
+	ringTiltMin = 0.12
+	ringTiltMax = 0.55
+
+	// Disk geometry, in planet-radius units (1 = the planet's rim).
+	ringInnerMin    = 1.20
+	ringInnerMax    = 1.45
+	ringDiskSpanMin = 0.45 // radial extent of a wide disk
+	ringDiskSpanMax = 0.95
+	ringGapMin      = 0.015 // clear gap between adjacent bands
+	ringGapMax      = 0.10
+	ringBandWMin    = 0.04 // width of one band
+	ringBandWMax    = 0.18
+
+	// Single thin ring.
+	ringThinInnerMin = 1.25
+	ringThinInnerMax = 1.55
+	ringThinWidthMin = 0.04
+	ringThinWidthMax = 0.12
+
+	ringRadNoise   = 7.0  // radial brightness-variation frequency
+	ringAngNoise   = 2.0  // azimuthal brightness-variation frequency
+	ringShadowDark = 0.85 // how far the planet's shadow darkens the rings it falls across
+)
+
 // PlanetType selects how a planet is rendered.
 type PlanetType int
 
@@ -188,6 +229,47 @@ type planet struct {
 	patchThresh float64 // moon: recolor-patch noise threshold
 	patchBlend  float64 // moon: recolor-patch blend amount (0 = none)
 	patchColor  gfx.HSV // moon: recolor-patch color (ice / dusty hue)
+
+	ring *rings // equatorial ring system, or nil
+}
+
+// ringBand is one concentric band of a ring system, spanning a radius range in
+// planet-radius units. Bands never overlap; the gaps between them show the sky
+// (or planet) through.
+type ringBand struct {
+	lo, hi  float64 // inner/outer radius (planet-radius units, 1 = the rim)
+	col     gfx.HSV // washed-out band color
+	opacity float64 // peak coverage (0 = clear, 1 = opaque)
+}
+
+// rings is a planet's equatorial ring system. The rings lie in the equatorial
+// plane (normal along the planet's pole axis) and are projected with an opening
+// tilt so they form an ellipse around the body. inner/outer bound all bands for
+// rasterization; sinTilt/cosTilt are the sine/cosine of the opening angle.
+type rings struct {
+	bands            []ringBand
+	inner, outer     float64
+	sinTilt, cosTilt float64
+	seed             int // brightness-variation noise seed
+}
+
+// sample returns the band color and coverage at ring radius t (planet-radius
+// units), with the band edges feathered over roughly a pixel (rf is the disc
+// radius in pixels). ok is false in the gaps between bands. Bands are ordered and
+// separated by a gap, so the first match wins.
+func (rg *rings) sample(t, rf float64) (gfx.HSV, float64, bool) {
+	fw := math.Max(0.012, 1.3/rf)
+	for _, b := range rg.bands {
+		if t < b.lo-fw || t > b.hi+fw {
+			continue
+		}
+		edge := smoothstep(b.lo-fw, b.lo+fw, t) * (1 - smoothstep(b.hi-fw, b.hi+fw, t))
+		if edge <= 0 {
+			continue
+		}
+		return b.col, b.opacity * edge, true
+	}
+	return gfx.HSV{}, 0, false
 }
 
 func (p *Planets) Render(c *Context) error {
@@ -310,7 +392,75 @@ func makePlanet(rng *rand.Rand, w int, set Settings, isFirst bool) planet {
 		}
 		p.craters = makeCraters(rng, r)
 	}
+	// Rings draw from their own stream (derived from this planet's surface seed)
+	// so adding them shifts neither the rest of this planet nor any later one: an
+	// existing seed renders identically, just gaining rings where the roll lands.
+	p.ring = makeRings(typ, r, p.turbSeed)
 	return p
+}
+
+// makeRings rolls a planet's ring system and resolves its geometry, bands, and
+// washed-out colors. It draws from a stream derived from the planet's surface
+// seed (not the shared planet stream) so it consumes nothing the rest of the
+// scene depends on. Returns nil when the planet is too small or the roll fails.
+func makeRings(typ PlanetType, r, turbSeed int) *rings {
+	if r < ringMinR {
+		return nil
+	}
+	chance := gasRingChance
+	if typ == Moon {
+		chance = moonRingChance
+	}
+	rng := rand.New(rand.NewSource(seed.Derive(int64(turbSeed), "rings")))
+	if rng.Float64() >= chance {
+		return nil
+	}
+
+	sinTilt := rnd(rng, ringTiltMin, ringTiltMax)
+	rg := &rings{
+		sinTilt: sinTilt,
+		cosTilt: math.Sqrt(1 - sinTilt*sinTilt),
+		seed:    rng.Int(),
+	}
+	baseHue := rng.Float64() * 360
+
+	if rng.Float64() < ringThinChance {
+		lo := rnd(rng, ringThinInnerMin, ringThinInnerMax)
+		hi := lo + rnd(rng, ringThinWidthMin, ringThinWidthMax)
+		rg.bands = []ringBand{{lo: lo, hi: hi, col: washedRingColor(rng, baseHue), opacity: rnd(rng, 0.55, 0.9)}}
+	} else {
+		inner := rnd(rng, ringInnerMin, ringInnerMax)
+		outer := inner + rnd(rng, ringDiskSpanMin, ringDiskSpanMax)
+		// Walk outward laying down bands separated by clear gaps, each its own
+		// washed hue and brightness, until the disk is full.
+		t := inner
+		for t < outer {
+			t += rnd(rng, ringGapMin, ringGapMax)
+			if t >= outer {
+				break
+			}
+			hi := math.Min(t+rnd(rng, ringBandWMin, ringBandWMax), outer)
+			rg.bands = append(rg.bands, ringBand{lo: t, hi: hi, col: washedRingColor(rng, baseHue), opacity: rnd(rng, 0.2, 0.8)})
+			t = hi
+		}
+		if len(rg.bands) == 0 { // span too narrow for a gap+band: lay one solid band
+			rg.bands = []ringBand{{lo: inner, hi: outer, col: washedRingColor(rng, baseHue), opacity: rnd(rng, 0.3, 0.7)}}
+		}
+	}
+
+	rg.inner = rg.bands[0].lo
+	rg.outer = rg.bands[len(rg.bands)-1].hi
+	return rg
+}
+
+// washedRingColor picks a ring band color near baseHue: always low saturation
+// (washed out) but with varied, mostly bright value.
+func washedRingColor(rng *rand.Rand, baseHue float64) gfx.HSV {
+	return gfx.HSV{
+		H: math.Mod(baseHue+rnd(rng, -25, 25)+360, 360),
+		S: rnd(rng, 0.04, 0.20),
+		V: rnd(rng, 0.55, 0.92),
+	}
 }
 
 // moonBaseColor picks a moon's base surface color: any hue, but biased toward
@@ -455,11 +605,20 @@ func newLightModel(s Settings) lightModel {
 }
 
 func drawPlanet(img *image.RGBA, w, h int, p planet, skyRow []gfx.RGB, hazeRow []float64, lm lightModel) {
+	// Rings straddle the body: the arc behind the planet is drawn first (so the
+	// body occludes it where it passes behind), then the body, then the near arc
+	// over the body.
+	if p.ring != nil {
+		drawRings(img, w, h, p, hazeRow, lm, false)
+	}
 	switch p.typ {
 	case GasGiant:
 		drawGasGiant(img, w, h, p, skyRow, hazeRow, lm)
 	case Moon:
 		drawMoon(img, w, h, p, skyRow, hazeRow, lm)
+	}
+	if p.ring != nil {
+		drawRings(img, w, h, p, hazeRow, lm, true)
 	}
 }
 
@@ -494,6 +653,141 @@ func blendPlanetPixel(img *image.RGBA, w, h, xx, yy int, surf gfx.HSV, nx, ny, n
 		B: sky.B + rb - sky.B*rb,
 	}
 	blendPixel(img, w, h, xx, yy, final, a)
+}
+
+// drawRings rasterizes a planet's equatorial ring system in one pass: front
+// selects which side of the body to draw. The rings lie in the equatorial plane,
+// whose normal is the planet's pole axis (tilted by rotation in the image plane,
+// then opened toward the viewer by the ring tilt). For each pixel the viewing ray
+// is intersected with that plane to recover the ring radius (band lookup) and the
+// depth (occlusion):
+//
+//   - outside the disc the ring is in open sky — drawn on the back pass (front=false);
+//   - inside the disc it is drawn only on the front pass (front=true) and only where
+//     it sits in front of the sphere's near surface; behind it is hidden by the body.
+//
+// Rings reflect starlight (brightening whatever is behind them, never darkening),
+// fade with the same atmospheric haze as the body, and are notched by the planet's
+// shadow where it falls across them.
+func drawRings(img *image.RGBA, w, h int, p planet, hazeRow []float64, lm lightModel, front bool) {
+	rg := p.ring
+	rf := float64(p.r)
+	cs, sn := math.Cos(p.rotation), math.Sin(p.rotation)
+	sphi, cphi := rg.sinTilt, rg.cosTilt
+
+	// Ring-plane normal (the pole axis), and the in-plane major axis u=(cs,sn,0)
+	// along the equator. illum is the constant lighting of the flat ring face.
+	nnx, nny, nnz := -sn*cphi, cs*cphi, sphi
+	illum := nnx*lm.lx + nny*lm.ly + nnz*lm.lz
+	bright0 := lm.ambient + (1-lm.ambient)*(0.35+0.65*math.Abs(illum))
+
+	// Light direction as a unit vector, for the planet's shadow cylinder.
+	lux, luy, luz := 0.0, 0.0, 1.0
+	if ln := math.Sqrt(lm.lx*lm.lx + lm.ly*lm.ly + lm.lz*lm.lz); ln > 1e-9 {
+		lux, luy, luz = lm.lx/ln, lm.ly/ln, lm.lz/ln
+	}
+
+	// Tight bounding box: the projected ellipse extents along x and y.
+	rx := int(math.Ceil(rg.outer*rf*math.Hypot(cs, sphi*sn))) + 1
+	ry := int(math.Ceil(rg.outer*rf*math.Hypot(sn, sphi*cs))) + 1
+
+	for oy := -ry; oy <= ry; oy++ {
+		yy := p.cy + oy
+		if yy < 0 || yy >= h {
+			continue
+		}
+		ny := float64(oy) / rf
+		for ox := -rx; ox <= rx; ox++ {
+			xx := p.cx + ox
+			if xx < 0 || xx >= w {
+				continue
+			}
+			nx := float64(ox) / rf
+
+			// Intersect the viewing ray (nx,ny,depth) with the ring plane
+			// (normal·point = 0), then read the ring radius from the in-plane
+			// coordinates. tu is along the equator, tv across it.
+			d := cphi * (sn*nx - cs*ny) / sphi
+			tu := nx*cs + ny*sn
+			tv := -nx*sphi*sn + ny*sphi*cs - d*cphi
+			t := math.Hypot(tu, tv)
+			if t < rg.inner || t > rg.outer {
+				continue
+			}
+
+			// Occlusion against the body: inside the disc the ring shows only on
+			// the near side (front pass); outside, only on the back pass.
+			if rr := nx*nx + ny*ny; rr < 1 {
+				if !(front && d > math.Sqrt(1-rr)) {
+					continue
+				}
+			} else if front {
+				continue
+			}
+
+			col, cov, ok := rg.sample(t, rf)
+			if !ok {
+				continue
+			}
+			// Radial/azimuthal brightness variation, then haze fade.
+			ang := math.Atan2(tv, tu) / (2 * math.Pi)
+			cov *= (0.55 + 0.45*gfx.FBM(t*ringRadNoise, ang*ringAngNoise, rg.seed, 3)) * (1 - hazeRow[yy])
+			if cov <= 0.003 {
+				continue
+			}
+
+			bright := bright0 * ringShadow(nx, ny, d, lux, luy, luz)
+			base := col.RGB()
+			lit := gfx.RGB{
+				R: clamp01(base.R * lm.col.R * bright),
+				G: clamp01(base.G * lm.col.G * bright),
+				B: clamp01(base.B * lm.col.B * bright),
+			}
+			blendRingPixel(img, w, h, xx, yy, lit, cov)
+		}
+	}
+}
+
+// ringShadow darkens a ring point that falls in the planet's shadow: the cylinder
+// cast away from the light. q is the ring point (disc-normalized, sphere radius 1)
+// and l the unit light direction. Points on the far side of the body (q·l < 0)
+// whose perpendicular distance from the light axis is within the planet radius are
+// shadowed, with a soft edge.
+func ringShadow(qx, qy, qz, lx, ly, lz float64) float64 {
+	along := qx*lx + qy*ly + qz*lz
+	if along >= 0 { // lit side of the planet: never in its shadow
+		return 1
+	}
+	px, py, pz := qx-along*lx, qy-along*ly, qz-along*lz
+	pr := math.Sqrt(px*px + py*py + pz*pz)
+	return 1 - ringShadowDark*smoothstep(1.0, 0.90, pr)
+}
+
+// blendRingPixel composites a reflective ring pixel over whatever is behind it
+// (sky or planet): the ring screens its light onto the background (it can only
+// brighten), scaled by coverage. In shadow or haze lit goes to ~0 and the ring
+// vanishes, letting the background show through.
+func blendRingPixel(img *image.RGBA, w, h, x, y int, lit gfx.RGB, cov float64) {
+	if cov <= 0 || x < 0 || y < 0 || x >= w || y >= h {
+		return
+	}
+	if cov > 1 {
+		cov = 1
+	}
+	off := img.PixOffset(x, y)
+	br := float64(img.Pix[off]) / 255
+	bg := float64(img.Pix[off+1]) / 255
+	bb := float64(img.Pix[off+2]) / 255
+	out := gfx.RGB{
+		R: br + cov*lit.R*(1-br),
+		G: bg + cov*lit.G*(1-bg),
+		B: bb + cov*lit.B*(1-bb),
+	}
+	r, g, b, _ := out.RGBA8()
+	img.Pix[off] = r
+	img.Pix[off+1] = g
+	img.Pix[off+2] = b
+	img.Pix[off+3] = 255
 }
 
 // drawGasGiant renders the banded sphere. For each disc pixel it rotates into
