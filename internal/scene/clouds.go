@@ -99,45 +99,127 @@ const (
 	cloudTintAmt      = 0.6  // how strongly the dominant star's color tints the lit side
 )
 
+// highClouds is the resolved high gauzy sheet: all the random draws for the
+// whole-sky layer baked into plain values, so the drawing pass consumes no
+// randomness. It is the internal mirror of CloudsHighV0.
+type highClouds struct {
+	seed     int
+	thresh   float64
+	maxAlpha float64
+	col      gfx.HSV
+}
+
+// Render generates the scene's clouds and draws them. It is the Element-level
+// entry point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (all the random draws) cleanly separated from rendering
+// (all the drawing), bridged by the cloud entity schemas.
 func (cl *Clouds) Render(c *Context) error {
+	list, err := cl.Generate(c)
+	if err != nil {
+		return err
+	}
+	return cl.RenderList(c, list)
+}
+
+// Generate resolves the scene's cloud layers into entities. It performs every
+// cloud random draw on the element stream, in the same order the original
+// interleaved drawing did, and has no side effects (it draws nothing), so
+// identical globals always yield an identical scene list. The high gauzy sheet,
+// when present, is the first entity; each nimbus cloud follows in draw order
+// (farthest first). An empty list means a clear sky.
+func (cl *Clouds) Generate(c *Context) (SceneList, error) {
 	horizon := c.Settings.HorizonY
 	if horizon < 8 {
-		return nil // essentially no sky to put clouds in
+		return nil, nil // essentially no sky to put clouds in
 	}
 	rng := c.Rng
 
-	// Split the animation budget between whichever layers are present.
+	// The two layer rolls come first, before either layer's own draws, so the
+	// stream order is preserved exactly.
 	hasHigh := rng.Float64() < cloudHighChance
 	hasLow := rng.Float64() < cloudLowChance
+
+	var list SceneList
+	if hasHigh {
+		list = append(list, highToEntity(generateHighClouds(c)))
+	}
+	if hasLow {
+		for _, cd := range generateLowClouds(c, horizon) {
+			list = append(list, cloudToEntity(cd))
+		}
+	}
+	return list, nil
+}
+
+// RenderList draws the cloud entities onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. The high sheet (if present) is drawn first, then each
+// nimbus cloud in list order (farthest first). Entities that are not clouds are
+// an error.
+func (cl *Clouds) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
+		return nil
+	}
+	horizon := c.Settings.HorizonY
+
+	// Determine which layers are present so the animation budget is split exactly
+	// as the original did (hasHigh && hasLow halves each layer's share).
+	var high *CloudsHighV0
+	var lows []*CloudLowV0
+	for _, e := range list {
+		switch v := e.(type) {
+		case *CloudsHighV0:
+			high = v
+		case *CloudLowV0:
+			lows = append(lows, v)
+		default:
+			return errNotCloud(e)
+		}
+	}
+
+	hasHigh, hasLow := high != nil, len(lows) > 0
 	share := cloudsAnimDuration
 	if hasHigh && hasLow {
 		share /= 2
 	}
 
 	if hasHigh {
-		if err := drawHighClouds(c, horizon, share); err != nil {
+		if err := renderHighClouds(c, horizon, share, entityToHigh(high)); err != nil {
 			return err
 		}
 	}
 	if hasLow {
-		if err := drawLowClouds(c, horizon, share); err != nil {
+		clouds := make([]cloud, len(lows))
+		for i, e := range lows {
+			clouds[i] = entityToCloud(e)
+		}
+		if err := renderLowClouds(c, horizon, share, clouds); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// drawHighClouds renders the high gauzy sheet: fractal noise over the whole sky,
-// thresholded to sparse coverage and stretched toward the horizon, alpha-blended
-// over the sky so it only thins the view rather than walling it off.
-func drawHighClouds(c *Context, horizon int, budget time.Duration) error {
-	w := c.W
+// generateHighClouds resolves the high gauzy sheet's random parameters in the
+// exact draw order the original interleaved version used: noise seed, coverage
+// threshold, peak alpha, then the time-of-day color.
+func generateHighClouds(c *Context) highClouds {
 	rng := c.Rng
+	return highClouds{
+		seed:     rng.Int(),
+		thresh:   rnd(rng, cloudHighThreshLo, cloudHighThreshHi),
+		maxAlpha: rnd(rng, cloudHighAlphaLo, cloudHighAlphaHi),
+		col:      cloudColorHigh(rng, c.Settings.Time),
+	}
+}
 
-	seed := rng.Int()
-	thresh := rnd(rng, cloudHighThreshLo, cloudHighThreshHi)
-	maxAlpha := rnd(rng, cloudHighAlphaLo, cloudHighAlphaHi)
-	col := cloudColorHigh(rng, c.Settings.Time)
+// renderHighClouds draws the resolved high gauzy sheet: fractal noise over the
+// whole sky, thresholded to sparse coverage and stretched toward the horizon,
+// alpha-blended over the sky so it only thins the view rather than walling it
+// off. It consumes no randomness.
+func renderHighClouds(c *Context, horizon int, budget time.Duration, h highClouds) error {
+	w := c.W
+	seed, thresh, maxAlpha, col := h.seed, h.thresh, h.maxAlpha, h.col
 
 	// Per-row vertical sample coordinate, stretched hard near the horizon (so
 	// features there squeeze into thin, far-looking ripples) and relaxing toward
@@ -204,32 +286,21 @@ type cloud struct {
 	seed        int
 }
 
-// drawLowClouds builds the depth layers of nimbus clouds and draws them from the
-// farthest (lowest, smallest, first) to the nearest (highest, largest, last), so
-// nearer clouds overlap farther ones. All clouds in a scene share one light
-// direction, derived (like the planets) from the twinkle angle and tinted by the
-// dominant star's color.
-func drawLowClouds(c *Context, horizon int, budget time.Duration) error {
+// generateLowClouds builds the depth layers of nimbus clouds, flattened into a
+// single farthest-first draw order (the layers are nested only so far/near sizing
+// can be computed; the returned slice is the order they are drawn in). This is
+// the only random part of the low layer; it preserves the original draw order
+// exactly: per layer the cloud count, then per cloud cx, baseY, width, and the
+// makeCloud draws (height, then seed).
+func generateLowClouds(c *Context, horizon int) []cloud {
 	w := c.W
 	rng := c.Rng
 	sky := float64(horizon)
 
 	nLayers := lowCloudLayerCount(rng)
 	lit, shadow := cloudColorsLow(rng, c.Settings.Time)
-	ambient := cloudAmbient(c.Settings.Time)
 
-	// Dominant-sun light direction, same convention as the planets: in-plane it
-	// points up-and-to-the-left from the twinkle angle (so clouds are lit on the
-	// same side as the planets), plus a fixed elevation toward the viewer.
-	a := c.Settings.TwinkleAngle * math.Pi / 180
-	lx, ly, lz := -math.Cos(a), -math.Sin(a), cloudLightZ
-	li := 1 / math.Sqrt(lx*lx+ly*ly+lz*lz)
-	light := [3]float64{lx * li, ly * li, lz * li}
-	tint := c.Settings.LightColor
-
-	// Build every cloud up front (this is the random part) so the animated draw
-	// below consumes no further randomness.
-	var layers [][]cloud
+	var clouds []cloud
 	for i := range nLayers {
 		t := 0.3
 		if nLayers > 1 {
@@ -241,33 +312,46 @@ func drawLowClouds(c *Context, horizon int, budget time.Duration) error {
 		width := (0.07 + 0.20*t) * float64(w)
 		nClouds := max(int(math.Round(rnd(rng, 2, 5)-2*t)), 1) // fewer, bigger clouds when near
 
-		clouds := make([]cloud, 0, nClouds)
 		for range nClouds {
 			cx := rng.Float64() * float64(w)
 			by := baseY + rnd(rng, -0.03, 0.03)*sky
 			cw := width * rnd(rng, 0.75, 1.3)
 			clouds = append(clouds, makeCloud(rng, cx, by, cw, horizon, lit, shadow))
 		}
-		layers = append(layers, clouds)
 	}
+	return clouds
+}
 
-	total := 0
-	for _, cs := range layers {
-		total += len(cs)
-	}
-	per := budget / time.Duration(max(total, 1))
+// renderLowClouds draws the resolved nimbus clouds from the farthest (lowest,
+// smallest, first) to the nearest (highest, largest, last), so nearer clouds
+// overlap farther ones. It consumes no randomness. All clouds in a scene share
+// one light direction, derived (like the planets) from the twinkle angle and
+// tinted by the dominant star's color — these come from Settings, not the random
+// stream, so they are recomputed here.
+func renderLowClouds(c *Context, horizon int, budget time.Duration, clouds []cloud) error {
+	w := c.W
+	ambient := cloudAmbient(c.Settings.Time)
 
-	for _, clouds := range layers {
-		for _, cd := range clouds {
-			if err := c.Ctx.Err(); err != nil {
-				return err
-			}
-			c.Canvas.Draw(func(img *image.RGBA) {
-				drawCloud(img, w, c.H, horizon, cd, light, tint, ambient)
-			})
-			if err := sleep(c.Ctx, per); err != nil {
-				return err
-			}
+	// Dominant-sun light direction, same convention as the planets: in-plane it
+	// points up-and-to-the-left from the twinkle angle (so clouds are lit on the
+	// same side as the planets), plus a fixed elevation toward the viewer.
+	a := c.Settings.TwinkleAngle * math.Pi / 180
+	lx, ly, lz := -math.Cos(a), -math.Sin(a), cloudLightZ
+	li := 1 / math.Sqrt(lx*lx+ly*ly+lz*lz)
+	light := [3]float64{lx * li, ly * li, lz * li}
+	tint := c.Settings.LightColor
+
+	per := budget / time.Duration(max(len(clouds), 1))
+
+	for _, cd := range clouds {
+		if err := c.Ctx.Err(); err != nil {
+			return err
+		}
+		c.Canvas.Draw(func(img *image.RGBA) {
+			drawCloud(img, w, c.H, horizon, cd, light, tint, ambient)
+		})
+		if err := sleep(c.Ctx, per); err != nil {
+			return err
 		}
 	}
 	return nil

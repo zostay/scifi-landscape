@@ -95,4 +95,8 @@ func init() {
 	sk := &Sky{}
 	RegisterGenerator("sky.v0", sk)
 	RegisterRenderer("sky.v0", sk)
+
+	cl := &Clouds{}
+	RegisterGenerator("clouds.v0", cl)
+	RegisterRenderer("clouds.v0", cl)
 }
