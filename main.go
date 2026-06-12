@@ -7,6 +7,7 @@
 //	scifi-landscape -t dusk             # force the time of day
 //	scifi-landscape -c my.yaml          # tune generation with a config file
 //	scifi-landscape -f scene.png        # reproduce a saved scene file (seed + config)
+//	scifi-landscape config scene.png    # print the config embedded in a scene file
 //
 // Saving (S) writes a scene file: a PNG with the seed, config, and globals
 // embedded, so the scene can be reproduced later with --from.
@@ -84,8 +85,29 @@ func main() {
 		},
 	}
 	flags = cli.AddSceneFlags(cmd)
+	cmd.AddCommand(configCmd())
 
 	if err := cmd.Execute(); err != nil {
 		log.Fatalln("scifi-landscape:", err)
+	}
+}
+
+// configCmd builds the "config" subcommand, which prints the config embedded in
+// a PNG scene file to stdout (as YAML, ready to feed back via --config).
+func configCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "config <scene.png>",
+		Short:         "Extract the embedded config (YAML) from a PNG scene file",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			yaml, err := cli.ExtractConfig(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Print(yaml)
+			return nil
+		},
 	}
 }

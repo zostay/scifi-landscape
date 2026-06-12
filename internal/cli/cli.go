@@ -42,6 +42,21 @@ func AddSceneFlags(cmd *cobra.Command) *SceneFlags {
 	return f
 }
 
+// ExtractConfig reads the scene file (PNG) at path and returns its embedded
+// config as YAML, exactly as stored. It errors if path is not a valid PNG or
+// carries no embedded config.
+func ExtractConfig(path string) (string, error) {
+	texts, err := scenefile.ReadTextsFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read scene file %q: %w", path, err)
+	}
+	cfg, ok := texts[scenefile.KeyConfig]
+	if !ok {
+		return "", fmt.Errorf("scene file %q has no embedded config", path)
+	}
+	return cfg, nil
+}
+
 // Resolve builds the scene configuration and the starting seed string from the
 // command-line inputs:
 //

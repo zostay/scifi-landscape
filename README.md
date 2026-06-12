@@ -78,6 +78,15 @@ PNG text chunks under the `scifi-landscape/` prefix — the **seed**, the comple
 `--seed` or `--config` still takes precedence), so the scene regenerates pixel-for-
 pixel. This makes a saved image self-describing — it carries its own recipe.
 
+To pull the embedded config back out as a YAML file — to inspect it or use it as
+a starting point for `--config` — use the `config` subcommand, which prints it to
+stdout:
+
+```sh
+go run . config scene.png            # print the scene's config
+go run . config scene.png > my.yaml  # save it to edit and reuse with --config
+```
+
 `VERSIONING.md` describes the reproducibility contract that keeps old seeds and old
 scene files rendering the same as the generator evolves.
 
