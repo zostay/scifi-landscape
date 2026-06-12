@@ -2,14 +2,14 @@
 // at a time, from a random seed. The construction is animated on screen; the
 // finished scene stays up and can be saved to a PNG.
 //
-//	scifi-landscape                 # random seed
-//	scifi-landscape -seed 12345     # reproduce a specific scene
-//	scifi-landscape -time dusk      # force the time of day
-//	scifi-landscape -config my.yaml # tune generation with a config file
-//	scifi-landscape -from scene.png # reproduce a saved scene file (seed + config)
+//	scifi-landscape                     # random seed
+//	scifi-landscape -s 12345            # reproduce a specific scene
+//	scifi-landscape -t dusk             # force the time of day
+//	scifi-landscape -c my.yaml          # tune generation with a config file
+//	scifi-landscape -f scene.png        # reproduce a saved scene file (seed + config)
 //
 // Saving (S) writes a scene file: a PNG with the seed, config, and globals
-// embedded, so the scene can be reproduced later with -from.
+// embedded, so the scene can be reproduced later with --from.
 //
 // While running:
 //
@@ -20,21 +20,20 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/spf13/cobra"
 
 	"github.com/zostay/scifi-landscape/internal/app"
 	"github.com/zostay/scifi-landscape/internal/cli"
 	"github.com/zostay/scifi-landscape/internal/seed"
 )
 
-// resolveSeed turns the -seed flag into an int64. An empty flag picks a random
+// resolveSeed turns the --seed flag into an int64. An empty flag picks a random
 // seed; otherwise the value is resolved by internal/seed (numbers used directly,
 // text hashed).
 func resolveSeed(s string) int64 {
@@ -44,34 +43,24 @@ func resolveSeed(s string) int64 {
 	return seed.Resolve(s)
 }
 
-func main() {
-	var (
-		seedStr    = flag.String("seed", "", "scene seed: a number, or any text (hashed); empty picks a random one")
-		todStr     = flag.String("time", "", "force time of day: midday, dusk, or twilight")
-		width      = flag.Int("w", 1280, "scene width in pixels")
-		height     = flag.Int("h", 720, "scene height in pixels")
-		configPath = flag.String("config", "", "YAML config file (partial or complete) to tune generation")
-		fromPath   = flag.String("from", "", "reproduce from a scene file (PNG): supplies seed and config unless overridden")
-	)
-	flag.Parse()
-
-	cfg, seedSrc, err := cli.Resolve(*configPath, *fromPath, *seedStr)
+func run(flags *cli.SceneFlags) error {
+	cfg, seedSrc, err := cli.Resolve(flags.Config, flags.From, flags.Seed)
 	if err != nil {
-		log.Fatalln("scifi-landscape:", err)
+		return err
 	}
 
 	s := resolveSeed(seedSrc)
 
-	ctrl := app.NewController(*width, *height, *todStr, cfg)
+	ctrl := app.NewController(flags.Width, flags.Height, flags.Time, cfg)
 	ctrl.Start(s)
 
 	if seedSrc == "" || seed.IsNumeric(seedSrc) {
-		fmt.Printf("scifi-landscape: seed %d (reproduce with -seed %d)\n", s, s)
+		fmt.Printf("scifi-landscape: seed %d (reproduce with -s %d)\n", s, s)
 	} else {
-		fmt.Printf("scifi-landscape: seed %q → %d (reproduce with -seed %q or -seed %d)\n", seedSrc, s, seedSrc, s)
+		fmt.Printf("scifi-landscape: seed %q → %d (reproduce with -s %q or -s %d)\n", seedSrc, s, seedSrc, s)
 	}
 
-	ebiten.SetWindowSize(*width, *height)
+	ebiten.SetWindowSize(flags.Width, flags.Height)
 	ebiten.SetWindowTitle("scifi-landscape")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	// Pause the game loop while the window is in the background so it doesn't
@@ -79,8 +68,24 @@ func main() {
 	// The scene still finishes building on its own goroutine regardless.
 	ebiten.SetRunnableOnUnfocused(false)
 
-	if err := ebiten.RunGame(app.NewGame(ctrl)); err != nil {
-		log.Println(err)
-		os.Exit(1)
+	return ebiten.RunGame(app.NewGame(ctrl))
+}
+
+func main() {
+	var flags *cli.SceneFlags
+	cmd := &cobra.Command{
+		Use:           "scifi-landscape",
+		Short:         "Procedurally draw an animated sci-fi landscape from a seed",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(flags)
+		},
+	}
+	flags = cli.AddSceneFlags(cmd)
+
+	if err := cmd.Execute(); err != nil {
+		log.Fatalln("scifi-landscape:", err)
 	}
 }

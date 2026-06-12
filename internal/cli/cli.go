@@ -8,10 +8,39 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/spf13/cobra"
+
 	"github.com/zostay/scifi-landscape/internal/config"
 	"github.com/zostay/scifi-landscape/internal/scene"
 	"github.com/zostay/scifi-landscape/internal/scenefile"
 )
+
+// SceneFlags holds the scene inputs shared by the windowed app and the headless
+// renderer. Bind them to a cobra command with AddSceneFlags, then pass Seed,
+// Config, and From to Resolve.
+type SceneFlags struct {
+	Seed   string
+	Time   string
+	Width  int
+	Height int
+	Config string
+	From   string
+}
+
+// AddSceneFlags registers the common scene flags on cmd in POSIX -s/--long
+// style and returns the struct they bind to. Note: -h is reserved by cobra for
+// --help, so --height has no short form.
+func AddSceneFlags(cmd *cobra.Command) *SceneFlags {
+	f := &SceneFlags{}
+	fl := cmd.Flags()
+	fl.StringVarP(&f.Seed, "seed", "s", "", "scene seed: a number, or any text (hashed); empty picks a random one")
+	fl.StringVarP(&f.Time, "time", "t", "", "force time of day: midday, dusk, or twilight")
+	fl.IntVarP(&f.Width, "width", "w", 1280, "scene width in pixels")
+	fl.IntVar(&f.Height, "height", 720, "scene height in pixels")
+	fl.StringVarP(&f.Config, "config", "c", "", "YAML config file (partial or complete) to tune generation")
+	fl.StringVarP(&f.From, "from", "f", "", "reproduce from a scene file (PNG): supplies seed and config unless overridden")
+	return f
+}
 
 // Resolve builds the scene configuration and the starting seed string from the
 // command-line inputs:

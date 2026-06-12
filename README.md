@@ -11,18 +11,22 @@ This is a modern reimagining of an old 256-color graphics experiment.
 ## Running
 
 ```sh
-go run .                  # random seed, 1280x720 window
-go run . -seed 12345      # reproduce a specific scene
-go run . -seed mars       # any text works too (hashed to a seed)
-go run . -time dusk       # force the time of day (midday | dusk | twilight)
-go run . -w 1920 -h 1080  # custom size
-go run . -config my.yaml  # tune generation with a config file (see Configuration)
-go run . -from scene.png  # reproduce a saved scene file (its seed + config)
+go run .                      # random seed, 1280x720 window
+go run . -s 12345             # reproduce a specific scene
+go run . -s mars              # any text works too (hashed to a seed)
+go run . -t dusk              # force the time of day (midday | dusk | twilight)
+go run . -w 1920 --height 1080 # custom size
+go run . -c my.yaml           # tune generation with a config file (see Configuration)
+go run . -f scene.png         # reproduce a saved scene file (its seed + config)
 ```
+
+Flags use POSIX `-s`/`--long` style; run `go run . --help` for the full list.
+Each has a long form too (`--seed`, `--time`, `--width`, `--height`, `--config`,
+`--from`); `--height` has no short form because `-h` is `--help`.
 
 A seed can be **a number or any text**. A plain integer (within int64 range) is
 used directly; anything else — a word, a phrase, a too-big number — is hashed to
-a stable seed, so `-seed mars` always yields the same scene. The resolved seed
+a stable seed, so `-s mars` always yields the same scene. The resolved seed
 is printed to the terminal on startup and shown on the on-screen HUD.
 
 ### Controls
@@ -40,10 +44,10 @@ is printed to the terminal on startup and shown on the on-screen HUD.
 To render straight to a PNG without opening a window (useful for batches):
 
 ```sh
-go run ./cmd/render -seed 12345 -o scene.png
-go run ./cmd/render -seed mars -time twilight -w 1920 -h 1080
-go run ./cmd/render -config my.yaml -seed 7 -o tuned.png
-go run ./cmd/render -from scene.png -o copy.png    # reproduce a saved scene
+go run ./cmd/render -s 12345 -o scene.png
+go run ./cmd/render -s mars -t twilight -w 1920 --height 1080
+go run ./cmd/render -c my.yaml -s 7 -o tuned.png
+go run ./cmd/render -f scene.png -o copy.png    # reproduce a saved scene
 ```
 
 The interactive app and the headless renderer share the exact same element
@@ -53,7 +57,7 @@ pipeline, so a given seed produces an identical image either way.
 
 The constants that shape generation — probabilities and limits like the horizon
 distribution, the star-density bias, and the dominant-star lighting ranges — live
-in a **configuration** rather than being hardcoded. Pass a YAML file with `-config`
+in a **configuration** rather than being hardcoded. Pass a YAML file with `--config`
 to tune them. The file may be **partial**: only the values you set are overridden,
 and everything else is filled from the built-in defaults. For example, to pin the
 horizon halfway up:
@@ -70,8 +74,8 @@ Saving (in the app or with `cmd/render`) writes a **scene file**: an ordinary PN
 that any viewer can open, with the data needed to reproduce the scene embedded as
 PNG text chunks under the `scifi-landscape/` prefix — the **seed**, the complete
 **config**, and the derived **globals** (as YAML). Pass a scene file back with
-`-from` to reproduce it: the embedded seed and config are loaded (an explicit
-`-seed` or `-config` still takes precedence), so the scene regenerates pixel-for-
+`--from` to reproduce it: the embedded seed and config are loaded (an explicit
+`--seed` or `--config` still takes precedence), so the scene regenerates pixel-for-
 pixel. This makes a saved image self-describing — it carries its own recipe.
 
 `VERSIONING.md` describes the reproducibility contract that keeps old seeds and old
