@@ -1,0 +1,44 @@
+algorithms:
+    directors:
+        - scene.v0
+    generators:
+        - sky
+        - stars
+        - systemstars
+        - planets
+        - clouds
+        - mountains
+        - ground
+        - cities
+        - water
+    renderers:
+        - sky
+        - stars
+        - systemstars
+        - planets
+        - clouds
+        - mountains
+        - ground
+        - cities
+        - water
+horizon:
+    min: 0.2
+    max: 0.5
+    mean: 0.35
+    std: 0.06
+twinkle:
+    max: 90
+    std: 24
+starDensity:
+    std: 0.9
+    bias: 0.95
+    clamp: 3
+lighting:
+    colorSatMin: 0
+    colorSatMax: 0.35
+    colorValue: 1
+    brightMin: 0.4
+    brightMax: 1
+    ambientBase: 0.02
+    ambientScale: 0.38
+    ambientPow: 2

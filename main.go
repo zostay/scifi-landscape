@@ -7,10 +7,10 @@
 //	scifi-landscape -t dusk             # force the time of day
 //	scifi-landscape -c my.yaml          # tune generation with a config file
 //	scifi-landscape -f scene.png        # reproduce a saved scene file (seed + config)
-//	scifi-landscape config scene.png    # print the config embedded in a scene file
+//	scifi-landscape config scene.png    # extract a scene file's embedded layers to files
 //
-// Saving (S) writes a scene file: a PNG with the seed, config, and globals
-// embedded, so the scene can be reproduced later with --from.
+// Saving (S) writes a scene file: a PNG with the seed, config, globals, and
+// scene list embedded, so the scene can be reproduced later with --from.
 //
 // While running:
 //
@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -92,22 +93,56 @@ func main() {
 	}
 }
 
-// configCmd builds the "config" subcommand, which prints the config embedded in
-// a PNG scene file to stdout (as YAML, ready to feed back via --config).
+// configCmd builds the "config" subcommand, which extracts the reproducibility
+// layers embedded in a PNG scene file to scifi-<seed>.* files. Config, globals,
+// and the scene list are written by default; the seed is opt-in. Each output is
+// toggled by its own flag.
 func configCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:           "config <scene.png>",
-		Short:         "Extract the embedded config (YAML) from a PNG scene file",
+	var seedF, configF, globalsF, sceneF bool
+	cmd := &cobra.Command{
+		Use:   "config <scene.png>",
+		Short: "Extract a PNG scene file's embedded layers to scifi-<seed>.* files",
+		Long: `Extract the reproducibility layers embedded in a PNG scene file, writing each
+to a file named after the scene's seed:
+
+  scifi-<seed>.seed.txt      the seed
+  scifi-<seed>.config.yaml   the config
+  scifi-<seed>.globals.yaml  the derived globals
+  scifi-<seed>.scene.yaml    the generated scene list
+
+Config, globals, and the scene list are written by default; the seed is not.
+Toggle any output with its flag, e.g. --seed to add the seed file or
+--config=false to skip the config.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			yaml, err := cli.ExtractConfig(args[0])
+			want := map[string]bool{
+				"seed":    seedF,
+				"config":  configF,
+				"globals": globalsF,
+				"scene":   sceneF,
+			}
+			files, missing, err := cli.ExtractScene(args[0], want)
 			if err != nil {
 				return err
 			}
-			fmt.Print(yaml)
+			for _, m := range missing {
+				fmt.Fprintf(os.Stderr, "scifi-landscape: scene file has no %s layer; skipping\n", m)
+			}
+			for _, f := range files {
+				if err := os.WriteFile(f.File, []byte(f.Content), 0o644); err != nil {
+					return err
+				}
+				fmt.Println(f.File)
+			}
 			return nil
 		},
 	}
+	fl := cmd.Flags()
+	fl.BoolVarP(&seedF, "seed", "s", false, "write scifi-<seed>.seed.txt")
+	fl.BoolVar(&configF, "config", true, "write scifi-<seed>.config.yaml")
+	fl.BoolVar(&globalsF, "globals", true, "write scifi-<seed>.globals.yaml")
+	fl.BoolVar(&sceneF, "scene", true, "write scifi-<seed>.scene.yaml")
+	return cmd
 }

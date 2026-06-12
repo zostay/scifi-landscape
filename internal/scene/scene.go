@@ -57,12 +57,15 @@ type Context struct {
 	LandAt func(x, y int) bool
 }
 
-// Element is one piece of a scene (sky, ground, structures, ...). Render draws
-// the element onto the canvas and should return ctx.Err() promptly if the
-// context is cancelled (e.g. the user requested a regenerate).
+// Element is one part of a scene (sky, ground, structures, ...): it generates
+// its entities and renders them onto the canvas. Build resets the element's
+// random stream, calls Generate to produce the element's scene list, then
+// RenderList to draw it — so the generated entities can be recorded into a scene
+// file. RenderList should return ctx.Err() promptly if the context is cancelled
+// (e.g. the user requested a regenerate).
 type Element interface {
-	Name() string
-	Render(c *Context) error
+	Generator
+	Renderer
 }
 
 // Scene is an ordered collection of elements plus the settings that shape them.
@@ -101,7 +104,11 @@ func New(s Settings) *Scene {
 //
 // This is the single shared rendering path used by both the live UI and the
 // headless renderer, so they always produce identical output for a given seed.
-func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h int, onElement func(string)) error {
+//
+// Build returns the aggregate scene list — every element's generated entities,
+// in render order — so a completed scene can be recorded into a scene file's
+// scene-list layer.
+func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h int, onElement func(string)) (SceneList, error) {
 	sctx := &Context{
 		Ctx:      ctx,
 		Canvas:   cv,
@@ -124,17 +131,25 @@ func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h 
 	sctx.Ocean = buildOcean(deriveRng(seed, "water"), sc.Settings, h)
 	sctx.LandAt = sctx.Ocean.LandAt
 
+	var list SceneList
 	for _, el := range sc.Elements {
 		if onElement != nil {
 			onElement(el.Name())
 		}
-		// Reset to this element's own independent stream before it renders.
+		// Reset to this element's own independent stream before it generates.
 		sctx.Rng = deriveRng(seed, el.Name())
-		if err := el.Render(sctx); err != nil {
-			return err
+		part, err := el.Generate(sctx)
+		if err != nil {
+			return nil, err
 		}
+		// RenderList consumes no randomness, so Generate-then-RenderList draws the
+		// exact same pixels el.Render once did, while also yielding the entities.
+		if err := el.RenderList(sctx, part); err != nil {
+			return nil, err
+		}
+		list = append(list, part...)
 	}
-	return nil
+	return list, nil
 }
 
 // deriveRng returns the independent random stream for one named part of a scene,

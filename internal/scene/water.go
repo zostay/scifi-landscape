@@ -55,18 +55,6 @@ const (
 	islandFoamLift   = 0.60  // how far the foam color is lifted toward white
 )
 
-// Render generates the scene's ocean and draws it. It is the Element-level entry
-// point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (capturing the resolved ocean) cleanly separated from
-// rendering (all the drawing), bridged by the water entity schema.
-func (wt *Water) Render(c *Context) error {
-	list, err := wt.Generate(c)
-	if err != nil {
-		return err
-	}
-	return wt.RenderList(c, list)
-}
-
 // Generate resolves the scene's ocean into a single entity. The ocean/land model
 // is a shared global decided up front in Scene.Build (Context.Ocean, via
 // buildOcean on the "water" stream) so Cities — drawn before Water — can keep to

@@ -84,15 +84,18 @@ UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden
 **All elements are migrated.** Sky, Stars, SystemStars, Planets, Clouds,
 Mountains, Ground, Cities, and Water each have a versioned generator + renderer
 (`<el>.v0`) and entity schema(s), registered in `registry.go` / each element's
-`init`. Every `Render` is `Generate` (all randomness) followed by `RenderList`
-(only drawing); the golden suite confirms each split is byte-identical, and each
-element has a `*SceneListRoundTrip` test proving its entities survive YAML and
-re-render to the same pixels.
+`init`. `Scene.Build` drives each element as `Generate` (all randomness) followed
+by `RenderList` (only drawing), accumulating every element's entities into the
+scene list it returns; the golden suite confirms the build is byte-identical, and
+each element has a `*SceneListRoundTrip` test proving its entities survive YAML
+and re-render to the same pixels.
 
 For `sky` and `water` the per-scene content (the sky gradient, the ocean/land
 model) is a shared *global* built in `Scene.Build`, not drawn from the element's
 own random stream — so their entities are thin (a marker / the ocean params) and
 their renderers read the shared global from the `Context`. Promoting those derived
 globals into `globals.yaml` (so a scene file's scene-list layer is fully
-self-contained without re-deriving from the seed) is the remaining follow-on; the
-live app already records seed + config + globals, which reproduces any scene.
+self-contained without re-deriving from the seed) is the remaining follow-on. Both
+the headless renderer and the live app (on a completed build) now record all four
+layers — seed + config + globals + scene list — so a scene reproduces from any of
+them.

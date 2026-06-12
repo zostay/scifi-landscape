@@ -50,7 +50,8 @@ func render(flags *cli.SceneFlags, out string) error {
 	cv := canvas.New(flags.Width, flags.Height)
 	sc := scene.New(globals.Settings)
 	// Headless: render instantly (no animation delay); the pixels are identical.
-	if err := sc.Build(scene.WithInstant(context.Background()), cv, s, flags.Width, flags.Height, nil); err != nil {
+	list, err := sc.Build(scene.WithInstant(context.Background()), cv, s, flags.Width, flags.Height, nil)
+	if err != nil {
 		return err
 	}
 
@@ -58,7 +59,7 @@ func render(flags *cli.SceneFlags, out string) error {
 	if name == "" {
 		name = fmt.Sprintf("scifi-%d.png", s)
 	}
-	texts, err := scene.SceneTexts(s, cfg, &globals, nil)
+	texts, err := scene.SceneTexts(s, cfg, &globals, list)
 	if err != nil {
 		return err
 	}

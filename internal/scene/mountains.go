@@ -39,18 +39,6 @@ const (
 	mountainTexAmp    = 0.10 // surface value mottle
 )
 
-// Render generates the scene's mountain range and draws it. It is the
-// Element-level entry point used by the build pipeline, and is exactly Generate
-// followed by RenderList — generation (all the random draws) cleanly separated
-// from rendering (all the drawing), bridged by the mountain entity schema.
-func (m *Mountains) Render(c *Context) error {
-	list, err := m.Generate(c)
-	if err != nil {
-		return err
-	}
-	return m.RenderList(c, list)
-}
-
 // Generate resolves the scene's mountain range into a single entity. It performs
 // every mountain random draw on the element stream, in the original order, and
 // has no side effects (it draws nothing), so identical globals always yield an

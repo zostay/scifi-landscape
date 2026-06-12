@@ -47,18 +47,6 @@ type building struct {
 	col           gfx.RGB
 }
 
-// Render generates the scene's city and draws it. It is the Element-level entry
-// point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (all the random draws) cleanly separated from rendering
-// (all the drawing), bridged by the city entity schema.
-func (c *Cities) Render(ctx *Context) error {
-	list, err := c.Generate(ctx)
-	if err != nil {
-		return err
-	}
-	return c.RenderList(ctx, list)
-}
-
 // Generate resolves the scene's city into a single entity carrying every building
 // (already sorted back-to-front) and any domes. It performs every city random
 // draw on the element stream and has no side effects (it draws nothing), so

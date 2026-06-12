@@ -36,18 +36,6 @@ type star struct {
 	spike  int     // spike length in pixels (when spikes)
 }
 
-// Render generates the scene's stars and draws them. It is the Element-level
-// entry point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (all the random draws) cleanly separated from rendering
-// (all the drawing), bridged by the star entity schema.
-func (s *Stars) Render(c *Context) error {
-	list, err := s.Generate(c)
-	if err != nil {
-		return err
-	}
-	return s.RenderList(c, list)
-}
-
 // Generate resolves the scene's star field into entities. It performs every star
 // random draw on the element stream and has no side effects (it draws nothing),
 // so identical globals always yield an identical scene list. An empty list means

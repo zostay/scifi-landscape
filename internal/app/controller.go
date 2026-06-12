@@ -36,8 +36,11 @@ type Controller struct {
 	// globals are the derived scene-wide values of the current scene, kept so a
 	// saved scene file can embed them. Replaced on each new generation.
 	globals scene.Globals
-	cancel  context.CancelFunc
-	done    chan struct{} // closed when the current run goroutine exits
+	// sceneList is the current scene's generated entity list, set when a build
+	// completes (nil while building) so a saved scene file can embed it.
+	sceneList scene.SceneList
+	cancel    context.CancelFunc
+	done      chan struct{} // closed when the current run goroutine exits
 }
 
 // NewController creates a controller for a w x h scene. cfg is the (complete)
@@ -100,6 +103,7 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 
 	c.mu.Lock()
 	c.globals = globals
+	c.sceneList = nil // cleared until this build completes
 	c.status.Time = settings.Time
 	c.status.Horizon = settings.Horizon
 	c.status.TwinkleAngle = settings.TwinkleAngle
@@ -109,11 +113,13 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 	c.canvas.Clear(blackRGBA)
 
 	sc := scene.New(settings)
-	if err := sc.Build(ctx, c.canvas, seed, c.W, c.H, c.setCurrent); err != nil {
+	list, err := sc.Build(ctx, c.canvas, seed, c.W, c.H, c.setCurrent)
+	if err != nil {
 		return // cancelled
 	}
 
 	c.mu.Lock()
+	c.sceneList = list
 	c.status.Current = ""
 	c.status.Done = true
 	c.mu.Unlock()
@@ -131,17 +137,18 @@ func (c *Controller) director() scene.Director {
 }
 
 // SaveSceneFile writes the current scene to name as a scene file: the rendered
-// PNG plus the embedded seed, config, and globals, so the scene can be reproduced
-// later. (The scene list is omitted until the element pipeline is fully migrated
-// to entities; see scene.SceneTexts.)
+// PNG plus the embedded seed, config, globals, and scene list, so the scene can
+// be reproduced later. If saved mid-build the scene list is not yet available and
+// is omitted (the other layers still reproduce the scene).
 func (c *Controller) SaveSceneFile(name string) error {
 	c.mu.Lock()
 	seed := c.status.Seed
 	cfg := c.config
 	g := c.globals
+	list := c.sceneList
 	c.mu.Unlock()
 
-	texts, err := scene.SceneTexts(seed, cfg, &g, nil)
+	texts, err := scene.SceneTexts(seed, cfg, &g, list)
 	if err != nil {
 		return err
 	}

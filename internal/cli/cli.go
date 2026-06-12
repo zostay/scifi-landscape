@@ -42,19 +42,59 @@ func AddSceneFlags(cmd *cobra.Command) *SceneFlags {
 	return f
 }
 
-// ExtractConfig reads the scene file (PNG) at path and returns its embedded
-// config as YAML, exactly as stored. It errors if path is not a valid PNG or
-// carries no embedded config.
-func ExtractConfig(path string) (string, error) {
+// sceneLayers enumerates the reproducibility layers a scene file can carry, in
+// canonical order, pairing each selectable name with its scene-file text-chunk
+// key and the filename suffix used when extracting it.
+var sceneLayers = []struct {
+	Name   string // selectable layer name: seed, config, globals, scene
+	Key    string // scenefile text-chunk key
+	Suffix string // output filename suffix, e.g. "config.yaml"
+}{
+	{"seed", scenefile.KeySeed, "seed.txt"},
+	{"config", scenefile.KeyConfig, "config.yaml"},
+	{"globals", scenefile.KeyGlobals, "globals.yaml"},
+	{"scene", scenefile.KeySceneList, "scene.yaml"},
+}
+
+// ExtractedLayer is one reproducibility layer pulled from a scene file: the
+// suggested output filename and the chunk content to write, verbatim.
+type ExtractedLayer struct {
+	Name    string // layer name: seed, config, globals, scene
+	File    string // output filename: scifi-<seed>.<suffix>
+	Content string // chunk content, exactly as embedded
+}
+
+// ExtractScene reads the scene file (PNG) at path and returns the requested
+// layers as files named scifi-<seed>.<suffix>. want selects layers by name
+// (seed, config, globals, scene); a layer that is requested but not embedded in
+// the file is reported in missing instead of returned, so the caller can warn.
+// The embedded seed names every output, so its absence is an error, as is a path
+// that is not a valid PNG.
+func ExtractScene(path string, want map[string]bool) (files []ExtractedLayer, missing []string, err error) {
 	texts, err := scenefile.ReadTextsFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read scene file %q: %w", path, err)
+		return nil, nil, fmt.Errorf("read scene file %q: %w", path, err)
 	}
-	cfg, ok := texts[scenefile.KeyConfig]
+	seedStr, ok := texts[scenefile.KeySeed]
 	if !ok {
-		return "", fmt.Errorf("scene file %q has no embedded config", path)
+		return nil, nil, fmt.Errorf("scene file %q has no embedded seed", path)
 	}
-	return cfg, nil
+	for _, l := range sceneLayers {
+		if !want[l.Name] {
+			continue
+		}
+		content, ok := texts[l.Key]
+		if !ok {
+			missing = append(missing, l.Name)
+			continue
+		}
+		files = append(files, ExtractedLayer{
+			Name:    l.Name,
+			File:    fmt.Sprintf("scifi-%s.%s", seedStr, l.Suffix),
+			Content: content,
+		})
+	}
+	return files, missing, nil
 }
 
 // Resolve builds the scene configuration and the starting seed string from the

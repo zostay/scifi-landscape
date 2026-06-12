@@ -88,18 +88,23 @@ horizon:
 Saving (in the app or with `cmd/render`) writes a **scene file**: an ordinary PNG
 that any viewer can open, with the data needed to reproduce the scene embedded as
 PNG text chunks under the `scifi-landscape/` prefix — the **seed**, the complete
-**config**, and the derived **globals** (as YAML). Pass a scene file back with
-`--from` to reproduce it: the embedded seed and config are loaded (an explicit
-`--seed` or `--config` still takes precedence), so the scene regenerates pixel-for-
-pixel. This makes a saved image self-describing — it carries its own recipe.
+**config**, the derived **globals**, and the generated **scene list** (as YAML).
+Pass a scene file back with `--from` to reproduce it: the embedded seed and config
+are loaded (an explicit `--seed` or `--config` still takes precedence), so the
+scene regenerates pixel-for-pixel. This makes a saved image self-describing — it
+carries its own recipe.
 
-To pull the embedded config back out as a YAML file — to inspect it or use it as
-a starting point for `--config` — use the `config` subcommand, which prints it to
-stdout:
+To pull those embedded layers back out as files — to inspect them or reuse the
+config with `--config` — use the `config` subcommand. It writes each requested
+layer to a file named after the scene's seed: `scifi-<seed>.config.yaml`,
+`scifi-<seed>.globals.yaml`, `scifi-<seed>.scene.yaml`, and `scifi-<seed>.seed.txt`.
+Config, globals, and the scene list are written by default; the seed is opt-in.
+Each output has its own toggle flag:
 
 ```sh
-go run . config scene.png            # print the scene's config
-go run . config scene.png > my.yaml  # save it to edit and reuse with --config
+go run . config scene.png                 # config + globals + scene list
+go run . config scene.png --seed          # also write the seed file
+go run . config scene.png --config=false  # skip the config; write the rest
 ```
 
 `VERSIONING.md` describes the reproducibility contract that keeps old seeds and old

@@ -81,7 +81,7 @@ func renderHash(t *testing.T, c goldenCase) string {
 	cv := canvas.New(c.w, c.h)
 	sc := New(settings)
 	ctx := WithInstant(context.Background())
-	if err := sc.Build(ctx, cv, c.seed, c.w, c.h, nil); err != nil {
+	if _, err := sc.Build(ctx, cv, c.seed, c.w, c.h, nil); err != nil {
 		t.Fatalf("%s: build: %v", c.name, err)
 	}
 	buf := make([]byte, c.w*c.h*4)
@@ -193,7 +193,7 @@ func TestInstantMatchesAnimated(t *testing.T) {
 	build := func(ctx context.Context) [32]byte {
 		cv := canvas.New(w, h)
 		sc := New(NewSettings(sd, "", h))
-		if err := sc.Build(ctx, cv, sd, w, h, nil); err != nil {
+		if _, err := sc.Build(ctx, cv, sd, w, h, nil); err != nil {
 			t.Fatalf("build: %v", err)
 		}
 		buf := make([]byte, w*h*4)

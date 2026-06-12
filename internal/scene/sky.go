@@ -20,18 +20,6 @@ func (s *Sky) Name() string { return "sky" }
 // skyAnimDuration is the wall-clock time the sky takes to wipe in.
 const skyAnimDuration = 1100 * time.Millisecond
 
-// Render generates the scene's sky and draws it. It is the Element-level entry
-// point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (all the random draws) cleanly separated from rendering
-// (all the drawing), bridged by the sky entity schema.
-func (s *Sky) Render(c *Context) error {
-	list, err := s.Generate(c)
-	if err != nil {
-		return err
-	}
-	return s.RenderList(c, list)
-}
-
 // Generate resolves the scene's sky into a single marker entity. The sky element
 // consumes no randomness of its own — every color comes from the shared
 // Context.SkyGradient global read at render time — so Generate performs no random

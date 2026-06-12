@@ -13,9 +13,8 @@ import (
 // that is not yet available). Whatever is written is complete, so a scene file
 // reproduces its scene from the highest layer present.
 //
-// While the element pipeline is only partly migrated to entities, the live app
-// records seed+config+globals (all complete for any scene) and omits the scene
-// list; the scene list is recorded for the parts that are entity-backed.
+// The headless renderer and the live app (on a completed build) supply all four
+// layers; the scene list is omitted only when a build has not finished.
 func SceneTexts(seed int64, cfg config.Config, g *Globals, list SceneList) (map[string]string, error) {
 	texts := map[string]string{
 		scenefile.KeySeed: strconv.FormatInt(seed, 10),

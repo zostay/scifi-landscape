@@ -56,18 +56,6 @@ const (
 	groundWanderVScale   = 0.5   // vertical patch frequency, relative to texture
 )
 
-// Render generates the scene's base terrain and draws it. It is the Element-level
-// entry point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (all the random draws) cleanly separated from rendering
-// (all the drawing), bridged by the ground entity schema.
-func (g *Ground) Render(c *Context) error {
-	list, err := g.Generate(c)
-	if err != nil {
-		return err
-	}
-	return g.RenderList(c, list)
-}
-
 // Generate resolves the scene's base terrain into a single entity. It performs
 // every ground random draw on the element stream and has no side effects (it
 // draws nothing), so identical globals always yield an identical scene list. When

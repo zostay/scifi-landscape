@@ -109,18 +109,6 @@ type highClouds struct {
 	col      gfx.HSV
 }
 
-// Render generates the scene's clouds and draws them. It is the Element-level
-// entry point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (all the random draws) cleanly separated from rendering
-// (all the drawing), bridged by the cloud entity schemas.
-func (cl *Clouds) Render(c *Context) error {
-	list, err := cl.Generate(c)
-	if err != nil {
-		return err
-	}
-	return cl.RenderList(c, list)
-}
-
 // Generate resolves the scene's cloud layers into entities. It performs every
 // cloud random draw on the element stream, in the same order the original
 // interleaved drawing did, and has no side effects (it draws nothing), so

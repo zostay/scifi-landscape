@@ -272,18 +272,6 @@ func (rg *rings) sample(t, rf float64) (gfx.HSV, float64, bool) {
 	return gfx.HSV{}, 0, false
 }
 
-// Render generates the scene's planets and draws them. It is the Element-level
-// entry point used by the build pipeline, and is exactly Generate followed by
-// RenderList — generation (all the random draws) cleanly separated from rendering
-// (all the drawing), bridged by the planet entity schemas.
-func (p *Planets) Render(c *Context) error {
-	list, err := p.Generate(c)
-	if err != nil {
-		return err
-	}
-	return p.RenderList(c, list)
-}
-
 // Generate resolves the scene's planets into entities. It performs every planet
 // random draw on the element stream and has no side effects (it draws nothing),
 // so identical globals always yield an identical scene list. An empty list means
