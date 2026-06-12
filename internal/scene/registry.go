@@ -99,4 +99,8 @@ func init() {
 	cl := &Clouds{}
 	RegisterGenerator("clouds.v0", cl)
 	RegisterRenderer("clouds.v0", cl)
+
+	ci := &Cities{}
+	RegisterGenerator("cities.v0", ci)
+	RegisterRenderer("cities.v0", ci)
 }

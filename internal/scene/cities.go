@@ -47,15 +47,32 @@ type building struct {
 	col           gfx.RGB
 }
 
+// Render generates the scene's city and draws it. It is the Element-level entry
+// point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (all the random draws) cleanly separated from rendering
+// (all the drawing), bridged by the city entity schema.
 func (c *Cities) Render(ctx *Context) error {
+	list, err := c.Generate(ctx)
+	if err != nil {
+		return err
+	}
+	return c.RenderList(ctx, list)
+}
+
+// Generate resolves the scene's city into a single entity carrying every building
+// (already sorted back-to-front) and any domes. It performs every city random
+// draw on the element stream and has no side effects (it draws nothing), so
+// identical globals always yield an identical scene list. An empty list means the
+// scene has no city.
+func (c *Cities) Generate(ctx *Context) (SceneList, error) {
 	if ctx.Rng.Float64() >= cityChance {
-		return nil
+		return nil, nil
 	}
 	w, h := ctx.W, ctx.H
 	horizon := ctx.Settings.HorizonY
 	groundH := h - horizon
 	if groundH < 6 {
-		return nil // no ground to build on
+		return nil, nil // no ground to build on
 	}
 
 	// Footprint: a localized settlement or a full-width sprawl. Either way a
@@ -120,7 +137,7 @@ func (c *Cities) Render(ctx *Context) error {
 		blds = append(blds, building{x: x, base: base, w: bw, h: bh, col: col})
 	}
 	if len(blds) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Some cities are domed: plan the geodesic domes (drawn after the buildings).
@@ -128,6 +145,26 @@ func (c *Cities) Render(ctx *Context) error {
 
 	// Back-to-front: farthest (nearest the horizon) first.
 	sort.Slice(blds, func(i, j int) bool { return blds[i].base < blds[j].base })
+
+	return SceneList{cityToEntity(blds, domes)}, nil
+}
+
+// RenderList draws the city entity onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. An empty list draws nothing; a non-city entity is an
+// error.
+func (c *Cities) RenderList(ctx *Context, list SceneList) error {
+	if len(list) == 0 {
+		return nil
+	}
+	blds, domes, err := entityToCity(list[0])
+	if err != nil {
+		return err
+	}
+	if len(blds) == 0 {
+		return nil
+	}
+	w, h := ctx.W, ctx.H
 
 	count := len(blds)
 	chunk := max(count/100, 1)
