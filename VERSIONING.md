@@ -81,7 +81,18 @@ UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden
 
 ## Migration status
 
-The split is being rolled out element by element. **Planets** is fully migrated
-(generator + renderer + entity schemas). The remaining elements still generate and
-render together via the `Element` interface; as each migrates it gains a versioned
-generator/renderer and entity schemas, registered alongside Planets.
+**All elements are migrated.** Sky, Stars, SystemStars, Planets, Clouds,
+Mountains, Ground, Cities, and Water each have a versioned generator + renderer
+(`<el>.v0`) and entity schema(s), registered in `registry.go` / each element's
+`init`. Every `Render` is `Generate` (all randomness) followed by `RenderList`
+(only drawing); the golden suite confirms each split is byte-identical, and each
+element has a `*SceneListRoundTrip` test proving its entities survive YAML and
+re-render to the same pixels.
+
+For `sky` and `water` the per-scene content (the sky gradient, the ocean/land
+model) is a shared *global* built in `Scene.Build`, not drawn from the element's
+own random stream — so their entities are thin (a marker / the ocean params) and
+their renderers read the shared global from the `Context`. Promoting those derived
+globals into `globals.yaml` (so a scene file's scene-list layer is fully
+self-contained without re-deriving from the seed) is the remaining follow-on; the
+live app already records seed + config + globals, which reproduces any scene.

@@ -273,7 +273,8 @@ internal/app/        Ebiten front-end + generation controller
 
 A scene is built in layers — `seed + config` → **director** → **globals** →
 **generators** → **entities** (the scene list) → **renderers** → image — so each
-stage can be recorded and replayed independently. New scene elements implement
-`scene.Element` and are added to the pipeline in `scene.New`; as elements migrate
-to the layered model they also gain a versioned generator, renderer, and entity
-schema (Planets is the first fully migrated; see `VERSIONING.md`).
+stage can be recorded and replayed independently. Every element is migrated to this
+model: each implements `scene.Element` (added to the pipeline in `scene.New`) and
+also has a versioned **generator**, **renderer**, and **entity schema**, so its
+random choices are resolved into serializable entities that the renderer draws
+from. See `VERSIONING.md` for the freeze contract that keeps it all reproducible.
