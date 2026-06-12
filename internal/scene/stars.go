@@ -36,15 +36,54 @@ type star struct {
 	spike  int     // spike length in pixels (when spikes)
 }
 
+// Render generates the scene's stars and draws them. It is the Element-level
+// entry point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (all the random draws) cleanly separated from rendering
+// (all the drawing), bridged by the star entity schema.
 func (s *Stars) Render(c *Context) error {
+	list, err := s.Generate(c)
+	if err != nil {
+		return err
+	}
+	return s.RenderList(c, list)
+}
+
+// Generate resolves the scene's star field into entities. It performs every star
+// random draw on the element stream and has no side effects (it draws nothing),
+// so identical globals always yield an identical scene list. An empty list means
+// the scene has no stars (midday, or no stars survived the brightness floor).
+func (s *Stars) Generate(c *Context) (SceneList, error) {
 	if c.Settings.Time == Midday {
-		return nil // no stars in daylight
+		return nil, nil // no stars in daylight
+	}
+	stars := s.generate(c.Rng, c.W, c.H, c.Settings)
+	if len(stars) == 0 {
+		return nil, nil
+	}
+	list := make(SceneList, len(stars))
+	for i, st := range stars {
+		list[i] = starToEntity(st)
+	}
+	return list, nil
+}
+
+// RenderList draws the star entities onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. The shared twinkle direction comes from the scene's
+// global twinkle angle. Entities that are not stars are an error.
+func (s *Stars) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
+		return nil
 	}
 
 	w, h := c.W, c.H
-	stars := s.generate(c.Rng, w, h, c.Settings)
-	if len(stars) == 0 {
-		return nil
+	stars := make([]star, len(list))
+	for i, e := range list {
+		st, err := entityToStar(e)
+		if err != nil {
+			return err
+		}
+		stars[i] = st
 	}
 
 	// Shared twinkle direction for every star in the scene.

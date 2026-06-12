@@ -75,4 +75,8 @@ func init() {
 	p := &Planets{}
 	RegisterGenerator("planets.v0", p)
 	RegisterRenderer("planets.v0", p)
+
+	st := &Stars{}
+	RegisterGenerator("stars.v0", st)
+	RegisterRenderer("stars.v0", st)
 }
