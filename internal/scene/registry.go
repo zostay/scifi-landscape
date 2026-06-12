@@ -103,4 +103,8 @@ func init() {
 	ci := &Cities{}
 	RegisterGenerator("cities.v0", ci)
 	RegisterRenderer("cities.v0", ci)
+
+	wt := &Water{}
+	RegisterGenerator("water.v0", wt)
+	RegisterRenderer("water.v0", wt)
 }

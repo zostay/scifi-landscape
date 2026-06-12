@@ -55,10 +55,43 @@ const (
 	islandFoamLift   = 0.60  // how far the foam color is lifted toward white
 )
 
+// Render generates the scene's ocean and draws it. It is the Element-level entry
+// point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (capturing the resolved ocean) cleanly separated from
+// rendering (all the drawing), bridged by the water entity schema.
 func (wt *Water) Render(c *Context) error {
+	list, err := wt.Generate(c)
+	if err != nil {
+		return err
+	}
+	return wt.RenderList(c, list)
+}
+
+// Generate resolves the scene's ocean into a single entity. The ocean/land model
+// is a shared global decided up front in Scene.Build (Context.Ocean, via
+// buildOcean on the "water" stream) so Cities — drawn before Water — can keep to
+// land while Water reflects the city skyline. Generate therefore draws NO
+// randomness of its own: it simply captures that resolved global into the entity.
+// A scene with no ocean (Context.Ocean nil or not present) yields an empty list.
+func (wt *Water) Generate(c *Context) (SceneList, error) {
 	oc := c.Ocean
 	if oc == nil || !oc.present {
+		return nil, nil
+	}
+	return SceneList{oceanToEntity(oc)}, nil
+}
+
+// RenderList draws the water entity onto the canvas: it mirrors the already-drawn
+// pixels above the horizon down into a rippled, island-dotted sea. It is the only
+// step that touches the image and it consumes no randomness, so the same scene
+// list always draws the same pixels. An entity that is not water is an error.
+func (wt *Water) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
 		return nil
+	}
+	oc, err := entityToOcean(list[0])
+	if err != nil {
+		return err
 	}
 	w, h := c.W, c.H
 	horizon, groundH := oc.horizon, oc.groundH
