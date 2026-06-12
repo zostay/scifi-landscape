@@ -1,5 +1,7 @@
-# Generated scene images
+# Generated scene images and extracted scene-file layers
 scifi-*.png
+scifi-*.yaml
+scifi-*.txt
 
 # Build output
 /scifi-landscape
