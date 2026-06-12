@@ -87,4 +87,8 @@ func init() {
 	mt := &Mountains{}
 	RegisterGenerator("mountains.v0", mt)
 	RegisterRenderer("mountains.v0", mt)
+
+	gr := &Ground{}
+	RegisterGenerator("ground.v0", gr)
+	RegisterRenderer("ground.v0", gr)
 }

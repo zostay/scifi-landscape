@@ -56,20 +56,61 @@ const (
 	groundWanderVScale   = 0.5   // vertical patch frequency, relative to texture
 )
 
+// Render generates the scene's base terrain and draws it. It is the Element-level
+// entry point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (all the random draws) cleanly separated from rendering
+// (all the drawing), bridged by the ground entity schema.
 func (g *Ground) Render(c *Context) error {
+	list, err := g.Generate(c)
+	if err != nil {
+		return err
+	}
+	return g.RenderList(c, list)
+}
+
+// Generate resolves the scene's base terrain into a single entity. It performs
+// every ground random draw on the element stream and has no side effects (it
+// draws nothing), so identical globals always yield an identical scene list. When
+// there is no room for ground below the horizon it returns an empty list and
+// draws no randomness, exactly as the original short-circuit did. The ground
+// color gradient and variable flag are shared globals read from the Context (not
+// generated here), so only the texture/wander seeds are resolved.
+func (g *Ground) Generate(c *Context) (SceneList, error) {
+	horizon := c.Settings.HorizonY
+	h := c.H
+	if horizon >= h-1 {
+		return nil, nil // no room for ground
+	}
+
+	terr := groundTerrain{variable: c.GroundVariable}
+	terr.seed = c.Rng.Int()
+	if terr.variable {
+		terr.wanderSeed = c.Rng.Int()
+	}
+	return SceneList{groundToEntity(terr)}, nil
+}
+
+// RenderList draws the ground entity onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. It reads the shared ground gradient/variable flag from
+// the Context (the scene-wide globals built in Scene.Build). An entity that is not
+// ground is an error.
+func (g *Ground) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
+		return nil
+	}
+	terr, err := entityToGround(list[0])
+	if err != nil {
+		return err
+	}
+
 	horizon := c.Settings.HorizonY
 	w, h := c.W, c.H
-	if horizon >= h-1 {
-		return nil // no room for ground
-	}
 
 	variable := c.GroundVariable
 	grad := c.GroundGradient
-	seed := c.Rng.Int()
-	var wanderSeed int
-	if variable {
-		wanderSeed = c.Rng.Int()
-	}
+	seed := terr.seed
+	wanderSeed := terr.wanderSeed
 	span := float64(h - horizon) // ground height in pixels
 	vy := groundDepthWarp(h-horizon, span)
 
