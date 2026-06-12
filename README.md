@@ -24,6 +24,21 @@ Flags use POSIX `-s`/`--long` style; run `go run . --help` for the full list.
 Each has a long form too (`--seed`, `--time`, `--width`, `--height`, `--config`,
 `--from`); `--height` has no short form because `-h` is `--help`.
 
+On macOS, ebiten's Metal driver is noisy: it triggers a wall of cgo deprecation
+warnings at build time, and prints benign `[CAMetalLayer nextDrawable] returning
+nil` lines to stderr at runtime. The `Makefile` quiets both — it sets
+`CGO_CFLAGS=-Wno-deprecated-declarations` for the build warnings and filters the
+Metal log lines out of `make run`'s stderr (real errors still pass through). So
+prefer it for day-to-day use (pass flags via `ARGS`):
+
+```sh
+make run                      # go run . , warnings suppressed
+make run ARGS="-s mars -t dusk"
+make render ARGS="-s 7 -o scene.png"
+make build                    # build the ./scifi-landscape binary
+make test
+```
+
 A seed can be **a number or any text**. A plain integer (within int64 range) is
 used directly; anything else — a word, a phrase, a too-big number — is hashed to
 a stable seed, so `-s mars` always yields the same scene. The resolved seed
