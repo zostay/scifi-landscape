@@ -20,7 +20,38 @@ func (s *Sky) Name() string { return "sky" }
 // skyAnimDuration is the wall-clock time the sky takes to wipe in.
 const skyAnimDuration = 1100 * time.Millisecond
 
+// Render generates the scene's sky and draws it. It is the Element-level entry
+// point used by the build pipeline, and is exactly Generate followed by
+// RenderList — generation (all the random draws) cleanly separated from rendering
+// (all the drawing), bridged by the sky entity schema.
 func (s *Sky) Render(c *Context) error {
+	list, err := s.Generate(c)
+	if err != nil {
+		return err
+	}
+	return s.RenderList(c, list)
+}
+
+// Generate resolves the scene's sky into a single marker entity. The sky element
+// consumes no randomness of its own — every color comes from the shared
+// Context.SkyGradient global read at render time — so Generate performs no random
+// draws and has no side effects (it draws nothing). It always yields exactly one
+// sky marker, so identical globals always produce an identical scene list.
+func (s *Sky) Generate(c *Context) (SceneList, error) {
+	return SceneList{skyToEntity(skyMarker{})}, nil
+}
+
+// RenderList draws the sky entity onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. The sky's per-row colors come entirely from the shared
+// Context.SkyGradient global. Entities that are not the sky are an error.
+func (s *Sky) RenderList(c *Context, list SceneList) error {
+	for _, e := range list {
+		if _, err := entityToSky(e); err != nil {
+			return err
+		}
+	}
+
 	grad := c.SkyGradient
 
 	w, h := c.W, c.H

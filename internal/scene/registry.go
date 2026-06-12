@@ -91,4 +91,8 @@ func init() {
 	gr := &Ground{}
 	RegisterGenerator("ground.v0", gr)
 	RegisterRenderer("ground.v0", gr)
+
+	sk := &Sky{}
+	RegisterGenerator("sky.v0", sk)
+	RegisterRenderer("sky.v0", sk)
 }
