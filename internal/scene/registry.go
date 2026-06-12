@@ -79,4 +79,8 @@ func init() {
 	st := &Stars{}
 	RegisterGenerator("stars.v0", st)
 	RegisterRenderer("stars.v0", st)
+
+	ss := &SystemStars{}
+	RegisterGenerator("systemstars.v0", ss)
+	RegisterRenderer("systemstars.v0", ss)
 }
