@@ -39,13 +39,30 @@ const (
 	mountainTexAmp    = 0.10 // surface value mottle
 )
 
+// Render generates the scene's mountain range and draws it. It is the
+// Element-level entry point used by the build pipeline, and is exactly Generate
+// followed by RenderList — generation (all the random draws) cleanly separated
+// from rendering (all the drawing), bridged by the mountain entity schema.
 func (m *Mountains) Render(c *Context) error {
-	// Mountains are always drawn. (Each element has its own random stream, so
-	// there is nothing to keep in sync by drawing a presence roll first.)
-	w, h := c.W, c.H
+	list, err := m.Generate(c)
+	if err != nil {
+		return err
+	}
+	return m.RenderList(c, list)
+}
+
+// Generate resolves the scene's mountain range into a single entity. It performs
+// every mountain random draw on the element stream, in the original order, and
+// has no side effects (it draws nothing), so identical globals always yield an
+// identical scene list. An empty list means there is no sky to rise into.
+//
+// Mountains are always drawn when there is room. (Each element has its own random
+// stream, so there is nothing to keep in sync by drawing a presence roll first.)
+func (m *Mountains) Generate(c *Context) (SceneList, error) {
+	w := c.W
 	horizon := c.Settings.HorizonY
 	if horizon < 4 {
-		return nil // no sky to rise into
+		return nil, nil // no sky to rise into
 	}
 	sky := float64(horizon)
 	// Coloring is normalized by the largest possible mountain, so short ranges
@@ -57,6 +74,34 @@ func (m *Mountains) Render(c *Context) error {
 	hmap := mountainHeights(c.Rng, w, smoothness, heightPx)
 	grad := buildMountainGradient(c.Rng, c.GroundGradient)
 	texSeed := c.Rng.Int()
+
+	return SceneList{mountainsToEntity(mountainRange{
+		heights: hmap,
+		grad:    grad,
+		texSeed: texSeed,
+		maxAlt:  maxAlt,
+	})}, nil
+}
+
+// RenderList draws the mountain entity onto the canvas. It is the only step that
+// touches the image and it consumes no randomness, so the same scene list always
+// draws the same pixels. An empty list draws nothing; a non-mountain entity is an
+// error.
+func (m *Mountains) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
+		return nil
+	}
+	mr, err := entityToMountains(list[0])
+	if err != nil {
+		return err
+	}
+
+	w, h := c.W, c.H
+	horizon := c.Settings.HorizonY
+	hmap := mr.heights
+	grad := mr.grad
+	texSeed := mr.texSeed
+	maxAlt := mr.maxAlt
 
 	batch := max(w/mountainsAnimCols, 1)
 	per := mountainsAnimDuration / time.Duration((w+batch-1)/batch)
