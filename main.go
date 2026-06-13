@@ -58,7 +58,10 @@ func run(flags *cli.SceneFlags) error {
 
 	s := resolveSeed(seedSrc)
 
-	ctrl := app.NewController(flags.Width, flags.Height, flags.Time, cfg)
+	ctrl, err := app.NewController(flags.Width, flags.Height, flags.Time, cfg)
+	if err != nil {
+		return err
+	}
 	ctrl.Start(s)
 
 	if seedSrc == "" || seed.IsNumeric(seedSrc) {
@@ -158,7 +161,10 @@ so it freezes the generated entities, not that derived state.`,
 				return err
 			}
 
-			ctrl := app.NewController(g.W, g.H, "", cfg)
+			ctrl, err := app.NewController(g.W, g.H, "", cfg)
+			if err != nil {
+				return err
+			}
 			ctrl.SetReplay(g, list)
 			ctrl.Start(g.Seed)
 
@@ -250,7 +256,10 @@ gradients/ocean even when --globals is given.`,
 				globals.Seed = s // honor --seed over the stored seed
 			}
 
-			ctrl := app.NewController(w, h, "", cfg)
+			ctrl, err := app.NewController(w, h, "", cfg)
+			if err != nil {
+				return err
+			}
 			ctrl.SetReplay(globals, list)
 			ctrl.Start(s)
 

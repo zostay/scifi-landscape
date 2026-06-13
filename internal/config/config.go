@@ -93,11 +93,13 @@ type LightingConfig struct {
 	AmbientPow   float64 `yaml:"ambientPow"`
 }
 
-// pipelineElements is the scene's element order, used as the default Generator
-// and Renderer key list. Directors default to the single scene director.
+// pipelineElements is the scene's element order as versioned algorithm keys,
+// used as the default Generator and Renderer key list (these resolve against the
+// scene package's generator/renderer registries). Directors default to the single
+// scene director. The keys are part of the on-disk config contract.
 var pipelineElements = []string{
-	"sky", "stars", "systemstars", "planets",
-	"clouds", "mountains", "ground", "cities", "water",
+	"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
+	"clouds.v0", "mountains.v0", "ground.v0", "cities.v0", "water.v0",
 }
 
 // DefaultConfig returns the complete built-in configuration. Its values mirror

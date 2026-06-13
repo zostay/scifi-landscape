@@ -60,15 +60,19 @@ type replaySpec struct {
 // configuration that shapes every scene; it is locked for the controller's
 // lifetime, as the app's configuration does not change after start. timeOverride
 // forces the time of day when non-empty (see scene.ParseTimeOfDay); otherwise it
-// is derived from each seed.
-func NewController(w, h int, timeOverride string, cfg config.Config) *Controller {
+// is derived from each seed. It errors if cfg names an unknown algorithm, so the
+// app fails before opening a window rather than mid-build.
+func NewController(w, h int, timeOverride string, cfg config.Config) (*Controller, error) {
+	if err := scene.CheckAlgorithms(cfg.Algorithms); err != nil {
+		return nil, err
+	}
 	return &Controller{
 		W:            w,
 		H:            h,
 		timeOverride: timeOverride,
 		config:       cfg,
 		canvas:       canvas.New(w, h),
-	}
+	}, nil
 }
 
 // SetReplay configures the next Start to reproduce a scene file's deeper layers
@@ -140,11 +144,13 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 
 	c.canvas.Clear(blackRGBA)
 
-	sc := scene.New(globals)
+	sc, err := scene.New(globals, c.config.Algorithms)
+	if err != nil {
+		return // config is validated in NewController; defensive only
+	}
 	// Replaying from a recorded scene list skips generation and only renders;
 	// otherwise the full pipeline generates and renders, yielding the scene list.
 	var list scene.SceneList
-	var err error
 	if c.replay.sceneList != nil {
 		list = c.replay.sceneList
 		err = sc.RenderList(ctx, c.canvas, globals.Seed, c.W, c.H, list, c.setCurrent)

@@ -78,9 +78,13 @@ func goldenCases() []goldenCase {
 // the hash is identical to what an animated build of the same seed produces.
 func renderHash(t *testing.T, c goldenCase) string {
 	t.Helper()
-	globals := DefaultDirector().Direct(config.DefaultConfig(), c.seed, c.time, c.w, c.h)
+	cfg := config.DefaultConfig()
+	globals := DefaultDirector().Direct(cfg, c.seed, c.time, c.w, c.h)
 	cv := canvas.New(c.w, c.h)
-	sc := New(globals)
+	sc, err := New(globals, cfg.Algorithms)
+	if err != nil {
+		t.Fatalf("%s: New: %v", c.name, err)
+	}
 	ctx := WithInstant(context.Background())
 	if _, err := sc.Build(ctx, cv, c.seed, c.w, c.h, nil); err != nil {
 		t.Fatalf("%s: build: %v", c.name, err)
@@ -191,9 +195,13 @@ func TestInstantMatchesAnimated(t *testing.T) {
 	const w, h = 200, 120
 	const sd = 42
 
+	cfg := config.DefaultConfig()
 	build := func(ctx context.Context) [32]byte {
 		cv := canvas.New(w, h)
-		sc := New(DefaultDirector().Direct(config.DefaultConfig(), sd, "", w, h))
+		sc, err := New(DefaultDirector().Direct(cfg, sd, "", w, h), cfg.Algorithms)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
 		if _, err := sc.Build(ctx, cv, sd, w, h, nil); err != nil {
 			t.Fatalf("build: %v", err)
 		}

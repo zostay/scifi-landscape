@@ -24,6 +24,16 @@ func globalsFor(seed int64, tod string, w, h int) Globals {
 	return DefaultDirector().Direct(config.DefaultConfig(), seed, tod, w, h)
 }
 
+// newScene builds a scene for g with the default-config pipeline.
+func newScene(t *testing.T, g Globals) *Scene {
+	t.Helper()
+	sc, err := New(g, config.DefaultConfig().Algorithms)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return sc
+}
+
 // TestRenderListMatchesBuild is the scene-list replay guarantee: rendering a
 // scene's recorded entity list (Scene.RenderList, the renderers-only path the
 // `from --scene` mode uses) reproduces the exact image Scene.Build drew while
@@ -46,7 +56,7 @@ func TestRenderListMatchesBuild(t *testing.T) {
 
 			// Build generates + renders, capturing the scene list.
 			cvBuild := canvas.New(c.w, c.h)
-			list, err := New(globals).Build(ctx, cvBuild, c.seed, c.w, c.h, nil)
+			list, err := newScene(t, globals).Build(ctx, cvBuild, c.seed, c.w, c.h, nil)
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
@@ -64,7 +74,7 @@ func TestRenderListMatchesBuild(t *testing.T) {
 
 			// RenderList replays only the renderers from that list on a fresh canvas.
 			cvReplay := canvas.New(c.w, c.h)
-			if err := New(globals).RenderList(ctx, cvReplay, c.seed, c.w, c.h, reloaded, nil); err != nil {
+			if err := newScene(t, globals).RenderList(ctx, cvReplay, c.seed, c.w, c.h, reloaded, nil); err != nil {
 				t.Fatalf("RenderList: %v", err)
 			}
 
@@ -86,7 +96,7 @@ func (unknownEntity) EntitySchema() string { return "does.not.exist.v0" }
 func TestRenderListUnknownSchema(t *testing.T) {
 	cv := canvas.New(480, 270)
 	list := SceneList{unknownEntity{}}
-	err := New(globalsFor(1, "", 480, 270)).RenderList(WithInstant(context.Background()), cv, 1, 480, 270, list, nil)
+	err := newScene(t, globalsFor(1, "", 480, 270)).RenderList(WithInstant(context.Background()), cv, 1, 480, 270, list, nil)
 	if err == nil {
 		t.Fatal("RenderList: want error for unknown entity schema, got nil")
 	}
@@ -107,7 +117,7 @@ func TestRenderListSeedIndependent(t *testing.T) {
 			ctx := WithInstant(context.Background())
 
 			cvBuild := canvas.New(w, h)
-			list, err := New(globals).Build(ctx, cvBuild, seed, w, h, nil)
+			list, err := newScene(t, globals).Build(ctx, cvBuild, seed, w, h, nil)
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
@@ -115,7 +125,7 @@ func TestRenderListSeedIndependent(t *testing.T) {
 			// Replay the same globals + list, but hand RenderList a different seed.
 			cvReplay := canvas.New(w, h)
 			wrongSeed := seed + 123456789
-			if err := New(globals).RenderList(ctx, cvReplay, wrongSeed, w, h, list, nil); err != nil {
+			if err := newScene(t, globals).RenderList(ctx, cvReplay, wrongSeed, w, h, list, nil); err != nil {
 				t.Fatalf("RenderList: %v", err)
 			}
 

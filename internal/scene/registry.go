@@ -16,7 +16,27 @@ import "fmt"
 var (
 	generators = map[string]Generator{}
 	renderers  = map[string]Renderer{}
+	elements   = map[string]Element{}
 )
+
+// RegisterElement registers el as the generator, renderer, and element for a
+// versioned key. For v0 each scene element is its own generator and renderer, so
+// this keeps the three registries in lockstep from one call. Call from an init
+// function; it panics on a duplicate key.
+func RegisterElement(key string, el Element) {
+	RegisterGenerator(key, el)
+	RegisterRenderer(key, el)
+	if _, dup := elements[key]; dup {
+		panic(fmt.Sprintf("scene: duplicate element key %q", key))
+	}
+	elements[key] = el
+}
+
+// ElementByName resolves an element key, or returns false if unregistered.
+func ElementByName(key string) (Element, bool) {
+	el, ok := elements[key]
+	return el, ok
+}
 
 // RegisterGenerator registers a generator under a versioned key. It panics on a
 // duplicate key (a startup-time programming error). Call from an init function.
@@ -69,42 +89,15 @@ func keysOf[V any](m map[string]V) []string {
 }
 
 func init() {
-	// Planets is the first element migrated to the generator/renderer split; it
-	// serves as both. As more elements migrate, register them here under their
-	// own versioned keys.
-	p := &Planets{}
-	RegisterGenerator("planets.v0", p)
-	RegisterRenderer("planets.v0", p)
-
-	st := &Stars{}
-	RegisterGenerator("stars.v0", st)
-	RegisterRenderer("stars.v0", st)
-
-	ss := &SystemStars{}
-	RegisterGenerator("systemstars.v0", ss)
-	RegisterRenderer("systemstars.v0", ss)
-
-	mt := &Mountains{}
-	RegisterGenerator("mountains.v0", mt)
-	RegisterRenderer("mountains.v0", mt)
-
-	gr := &Ground{}
-	RegisterGenerator("ground.v0", gr)
-	RegisterRenderer("ground.v0", gr)
-
-	sk := &Sky{}
-	RegisterGenerator("sky.v0", sk)
-	RegisterRenderer("sky.v0", sk)
-
-	cl := &Clouds{}
-	RegisterGenerator("clouds.v0", cl)
-	RegisterRenderer("clouds.v0", cl)
-
-	ci := &Cities{}
-	RegisterGenerator("cities.v0", ci)
-	RegisterRenderer("cities.v0", ci)
-
-	wt := &Water{}
-	RegisterGenerator("water.v0", wt)
-	RegisterRenderer("water.v0", wt)
+	// Each element is its own generator and renderer; register all three under one
+	// versioned key. config.Algorithms names these keys to build a scene's pipeline.
+	RegisterElement("sky.v0", &Sky{})
+	RegisterElement("stars.v0", &Stars{})
+	RegisterElement("systemstars.v0", &SystemStars{})
+	RegisterElement("planets.v0", &Planets{})
+	RegisterElement("clouds.v0", &Clouds{})
+	RegisterElement("mountains.v0", &Mountains{})
+	RegisterElement("ground.v0", &Ground{})
+	RegisterElement("cities.v0", &Cities{})
+	RegisterElement("water.v0", &Water{})
 }

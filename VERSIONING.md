@@ -29,15 +29,18 @@ seed + config  ──Director──▶  globals  ──Generators──▶  scen
 
 A scene file (`internal/scenefile`) is a PNG carrying `scifi-landscape/seed`,
 `config.yaml`, `globals.yaml`, and `scene-list.yaml`, so a scene can be reproduced
-from any layer.
+from any layer. A config's `algorithms` section names the director, generator, and
+renderer **versioned keys** (`scene.v0`, `sky.v0` … `water.v0`); `scene.New` builds
+the pipeline by resolving the generator keys (in order) against the registries, so
+the keys recorded in `config.yaml` are the on-disk contract that selects the code.
 
 ## The freeze rules (from the first release on)
 
 1. **Algorithms are frozen once released.** Do not change the behavior of an
    existing Director, Generator, or Renderer. To change behavior, add a new
    versioned implementation (`scene.v0` → `scene.v1`, `planets.v0` → `planets.v1`)
-   and register it under a new key. Configs select algorithms by key, so old
-   configs keep running the old code.
+   and register it under a new key. Configs select algorithms by key (the config's
+   `algorithms` lists), so old configs keep running the old code.
 
 2. **Entity schemas are forward-mutable only.** You may *add* fields to an existing
    schema (so long as a zero value means "as before"). You may never rename,

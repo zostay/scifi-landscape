@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/zostay/scifi-landscape/internal/canvas"
+	"github.com/zostay/scifi-landscape/internal/config"
 	"github.com/zostay/scifi-landscape/internal/gfx"
 	"github.com/zostay/scifi-landscape/internal/seed"
 )
@@ -83,24 +84,47 @@ type Scene struct {
 	Elements []Element
 }
 
-// New builds the element pipeline for the given globals. As the project grows
-// this is where element selection, exclusions, and ordering will live; for now
-// it is the full back-to-front element list.
-func New(g Globals) *Scene {
-	return &Scene{
-		Globals: g,
-		Elements: []Element{
-			&Sky{},
-			&Stars{},
-			&SystemStars{},
-			&Planets{},
-			&Clouds{},
-			&Mountains{},
-			&Ground{},
-			&Cities{},
-			&Water{},
-		},
+// New builds a scene for the given globals with the pipeline named by algos: each
+// key in algos.Generators is resolved (in order) to its registered element, which
+// renders back-to-front in that order. It errors if a generator key is not
+// registered, or if any algos.Renderers key is not a registered renderer, so a
+// config naming an unknown algorithm fails loudly. (For v0 each element is its own
+// generator and renderer; per-entity renderer selection is a future step.)
+func New(g Globals, algos config.Algorithms) (*Scene, error) {
+	els, err := resolveElements(algos)
+	if err != nil {
+		return nil, err
 	}
+	return &Scene{Globals: g, Elements: els}, nil
+}
+
+// CheckAlgorithms reports whether every algorithm key in algos resolves against
+// the registries. It lets a caller validate a (possibly user-supplied) config up
+// front — before building globals or opening a window — and fail with a clear
+// message.
+func CheckAlgorithms(algos config.Algorithms) error {
+	_, err := resolveElements(algos)
+	return err
+}
+
+// resolveElements turns the config's generator keys into the ordered element
+// pipeline and validates the renderer keys. It is the shared resolver behind New
+// and CheckAlgorithms.
+func resolveElements(algos config.Algorithms) ([]Element, error) {
+	els := make([]Element, 0, len(algos.Generators))
+	for _, key := range algos.Generators {
+		el, ok := ElementByName(key)
+		if !ok {
+			return nil, fmt.Errorf("scene: unknown generator %q", key)
+		}
+		els = append(els, el)
+	}
+	for _, key := range algos.Renderers {
+		if _, ok := RendererByName(key); !ok {
+			return nil, fmt.Errorf("scene: unknown renderer %q", key)
+		}
+	}
+	return els, nil
 }
 
 // Build renders every element of the scene onto cv in order. Each element draws
