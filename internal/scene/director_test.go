@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/zostay/scifi-landscape/internal/config"
@@ -13,7 +14,7 @@ func TestDirectDeterministic(t *testing.T) {
 	cfg := config.DefaultConfig()
 	a := d.Direct(cfg, 123, "", 1280, 720)
 	b := d.Direct(cfg, 123, "", 1280, 720)
-	if a != b {
+	if !reflect.DeepEqual(a, b) {
 		t.Fatalf("same seed+config gave different globals:\n %+v\n %+v", a, b)
 	}
 	if a.Seed != 123 || a.W != 1280 || a.H != 720 {

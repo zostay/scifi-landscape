@@ -34,7 +34,7 @@ func TestSceneTextsAndLoadRoundTrip(t *testing.T) {
 	if !ls.HasConfig || !reflect.DeepEqual(ls.Config, cfg) {
 		t.Errorf("config did not round-trip")
 	}
-	if !ls.HasGlobals || ls.Globals != g {
+	if !ls.HasGlobals || !reflect.DeepEqual(ls.Globals, g) {
 		t.Errorf("globals did not round-trip:\n got %+v\nwant %+v", ls.Globals, g)
 	}
 	if ls.HasSceneList {

@@ -90,19 +90,22 @@ scene list it returns; the golden suite confirms the build is byte-identical, an
 each element has a `*SceneListRoundTrip` test proving its entities survive YAML
 and re-render to the same pixels.
 
-For `sky` and `water` the per-scene content (the sky gradient, the ocean/land
-model) is a shared *global* built in `Scene.Build`, not drawn from the element's
-own random stream — so their entities are thin (a marker / the ocean params) and
-their renderers read the shared global from the `Context`. Both the headless
-renderer and the live app (on a completed build) record all four layers — seed +
-config + globals + scene list — so a scene reproduces from any of them.
+The scene-wide sky and ground gradients are **globals**: the director derives
+them (`SkyGradient`, `GroundGradient`, `GroundVariable` on `Globals`) and they are
+recorded in `globals.yaml`. Renderers read them from the `Context`, which
+`Scene.newContext` populates straight from the globals — so a recorded scene list
+redraws the same image without re-deriving anything from the seed. The ocean/land
+model is the one shared value still built from the seed in `newContext`, but only
+generation reads it (Cities placement); for rendering it is captured per-scene in
+the `water` entity. Both the headless renderer and the live app (on a completed
+build) record all four layers — seed + config + globals + scene list.
 
 Replaying from each layer is exposed by the `scifi-landscape from` subcommand:
 the default re-derives everything from seed + config; `--globals` uses the stored
 globals (skipping the director); and `--scene` renders the stored scene list
-directly (`Scene.RenderList`, skipping the generators). The remaining follow-on is
-that `Scene.RenderList` still rebuilds the shared sky/ground gradients and ocean
-from the seed (`Scene.newContext`), since those derived globals are not yet
-captured in `globals.yaml`; so `--scene` freezes the generated entities but not
-that shared state. The `TestRenderListMatchesBuild` test pins
-`RenderList(Build's list) == Build` byte-for-byte (including a YAML round-trip).
+directly (`Scene.RenderList`, skipping the generators). Because the gradients now
+live in the globals, `--scene` rendering is **seed-independent** — its output
+depends only on the globals and scene list. Two tests pin this:
+`TestRenderListMatchesBuild` (`RenderList(Build's list) == Build` byte-for-byte,
+including a YAML round-trip) and `TestRenderListSeedIndependent` (the same image
+even when `RenderList` is handed a different seed).

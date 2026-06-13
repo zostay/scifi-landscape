@@ -48,7 +48,7 @@ func render(flags *cli.SceneFlags, out string) error {
 	globals := dir.Direct(cfg, s, flags.Time, flags.Width, flags.Height)
 
 	cv := canvas.New(flags.Width, flags.Height)
-	sc := scene.New(globals.Settings)
+	sc := scene.New(globals)
 	// Headless: render instantly (no animation delay); the pixels are identical.
 	list, err := sc.Build(scene.WithInstant(context.Background()), cv, s, flags.Width, flags.Height, nil)
 	if err != nil {

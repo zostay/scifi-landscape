@@ -5,10 +5,9 @@ import "fmt"
 // Ground entity schema. The base terrain resolves to a single entity holding the
 // two noise seeds drawn from the element stream: the surface texture seed and (in
 // variable color mode) the gradient-wander seed. The ground color gradient itself
-// is a shared global built in Scene.Build (Context.GroundGradient /
-// Context.GroundVariable) and is NOT carried here — RenderList reads it from the
-// Context exactly as today, so it stays a scene-wide global rather than a
-// per-element decision.
+// is a scene-wide global (Globals.GroundGradient / Globals.GroundVariable,
+// derived by the director) and is NOT carried here — RenderList reads it from the
+// Context, so it stays a scene-wide global rather than a per-element decision.
 //
 // This schema is FROZEN: add fields if needed, but never rename, retype, or
 // repurpose an existing one — make a V1 instead. The yaml keys are the on-disk

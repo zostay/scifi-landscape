@@ -74,18 +74,21 @@ type Element interface {
 	Schemas() []string
 }
 
-// Scene is an ordered collection of elements plus the settings that shape them.
+// Scene is an ordered collection of elements plus the globals that shape them.
+// The globals carry the derived settings and the scene-wide gradients the
+// renderers read, so a Scene built from a recorded globals renders identically
+// without re-deriving that state from the seed.
 type Scene struct {
-	Settings Settings
+	Globals  Globals
 	Elements []Element
 }
 
-// New builds the element pipeline for the given settings. As the project grows
+// New builds the element pipeline for the given globals. As the project grows
 // this is where element selection, exclusions, and ordering will live; for now
-// it is just the sky.
-func New(s Settings) *Scene {
+// it is the full back-to-front element list.
+func New(g Globals) *Scene {
 	return &Scene{
-		Settings: s,
+		Globals: g,
 		Elements: []Element{
 			&Sky{},
 			&Stars{},
@@ -138,31 +141,32 @@ func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h 
 	return list, nil
 }
 
-// newContext builds the per-build render Context, including the scene-wide shared
-// state that elements read but do not own: the sky and ground gradients and the
-// ocean/land model. Each is derived from its own stream off the master seed (in a
-// fixed order, so the seed stays reproducible), so they are independent of each
-// other and of the elements. Both Build and RenderList use this, so a scene
-// rendered from its generated list sees exactly the shared state Build did.
+// newContext builds the per-build render Context. The scene-wide gradients the
+// renderers read come straight from the globals (the director derived them), so
+// rendering a recorded scene list needs no seed for them. The ocean/land model is
+// still resolved here from the seed — only generation reads it (Cities placement,
+// Water capture); no renderer does — so it stays working state. Both Build and
+// RenderList use this, so a scene rendered from its generated list sees exactly
+// the shared state Build did.
 func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, w, h int) *Context {
+	g := sc.Globals
 	sctx := &Context{
 		Ctx:      ctx,
 		Canvas:   cv,
-		Settings: sc.Settings,
+		Settings: g.Settings,
 		Seed:     seed,
 		W:        w,
 		H:        h,
 	}
-	// Build the sky and ground gradients up front so every element can share them
-	// (planets fade into the sky color; mountains base on the ground color).
-	sctx.SkyGradient = buildSkyGradient(deriveRng(seed, "sky-gradient"), sc.Settings.Time)
-	gg := deriveRng(seed, "ground-gradient")
-	sctx.GroundVariable = gg.Float64() < groundVariableChance
-	sctx.GroundGradient = buildGroundGradient(gg, sc.Settings.Time, sctx.GroundVariable)
+	// Sky and ground gradients are globals (planets fade into the sky color;
+	// mountains base on the ground color) — read, don't re-derive.
+	sctx.SkyGradient = g.SkyGradient
+	sctx.GroundGradient = g.GroundGradient
+	sctx.GroundVariable = g.GroundVariable
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
 	// to land while Water still reflects the city skyline.
-	sctx.Ocean = buildOcean(deriveRng(seed, "water"), sc.Settings, h)
+	sctx.Ocean = buildOcean(deriveRng(seed, "water"), g.Settings, h)
 	sctx.LandAt = sctx.Ocean.LandAt
 	return sctx
 }

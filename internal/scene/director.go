@@ -14,13 +14,15 @@ import (
 // a configuration, before any entity is generated. Unlike a configuration,
 // globals are always complete — no field is ever missing or assumed.
 //
-// For now the globals are the master seed, the scene dimensions, and the derived
-// Settings (time of day, horizon, twinkle, star density, and dominant-star
-// lighting). The per-element random streams are still derived deterministically
-// from Seed during generation (see deriveRng), and the sky/ground gradients and
-// ocean remain working state rebuilt from the seed in Build; as generators are
-// migrated those will move here too. Existing fields are never changed, only
-// added to, so a recorded globals keeps reproducing its scene.
+// The globals are the master seed, the scene dimensions, the derived Settings
+// (time of day, horizon, twinkle, star density, and dominant-star lighting), and
+// the scene-wide sky/ground gradients that renderers read. Capturing the gradients
+// here (rather than re-deriving them from the seed at render time) lets a recorded
+// scene list redraw the same image without the seed. The per-element generation
+// streams are still derived from Seed (see deriveRng), and the ocean/land model
+// remains working state rebuilt from the seed in Build (no renderer reads it — it
+// is captured per-scene in the water entity). Existing fields are never changed,
+// only added to, so a recorded globals keeps reproducing its scene.
 type Globals struct {
 	// Seed is the scene's master seed; per-element streams derive from it.
 	Seed int64 `yaml:"seed"`
@@ -29,6 +31,14 @@ type Globals struct {
 	H int `yaml:"h"`
 	// Settings are the derived scene-wide look choices.
 	Settings Settings `yaml:"settings"`
+	// SkyGradient is the horizon→top sky color gradient, read by the sky, planet,
+	// and city-dome renderers.
+	SkyGradient gfx.Gradient `yaml:"skyGradient"`
+	// GroundGradient is the horizon→foreground ground color gradient, read by the
+	// ground renderer; GroundVariable reports whether the multi-color "variable"
+	// ground mode was chosen (it shapes the gradient).
+	GroundGradient gfx.Gradient `yaml:"groundGradient"`
+	GroundVariable bool         `yaml:"groundVariable"`
 }
 
 // Marshal serializes the globals to YAML for a scene file's globals.yaml. Globals
@@ -106,6 +116,16 @@ func (sceneDirectorV0) Direct(cfg config.Config, seed int64, timeOverride string
 	// Horizon is measured from the bottom, so convert to a row from the top.
 	y := min(max(int((1-frac)*float64(h)), 1), h-1)
 
+	// Derive the scene-wide sky and ground gradients here so they are part of the
+	// globals (and recorded in a scene file), rather than rebuilt from the seed at
+	// render time. Each draws from its own stream off the seed, independent of the
+	// "settings" stream above; these are the exact calls Scene.Build once made, so
+	// the output is unchanged.
+	skyGrad := buildSkyGradient(deriveRng(seed, "sky-gradient"), tod)
+	gg := deriveRng(seed, "ground-gradient")
+	groundVar := gg.Float64() < groundVariableChance
+	groundGrad := buildGroundGradient(gg, tod, groundVar)
+
 	return Globals{
 		Seed: seed,
 		W:    w,
@@ -121,6 +141,9 @@ func (sceneDirectorV0) Direct(cfg config.Config, seed int64, timeOverride string
 			LightPhase:      lightPhase,
 			LightAmbient:    lightAmbient,
 		},
+		SkyGradient:    skyGrad,
+		GroundGradient: groundGrad,
+		GroundVariable: groundVar,
 	}
 }
 

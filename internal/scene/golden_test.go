@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/zostay/scifi-landscape/internal/canvas"
+	"github.com/zostay/scifi-landscape/internal/config"
 )
 
 // The golden suite is the project's reproducibility safety net. Seed
@@ -77,9 +78,9 @@ func goldenCases() []goldenCase {
 // the hash is identical to what an animated build of the same seed produces.
 func renderHash(t *testing.T, c goldenCase) string {
 	t.Helper()
-	settings := NewSettings(c.seed, c.time, c.h)
+	globals := DefaultDirector().Direct(config.DefaultConfig(), c.seed, c.time, c.w, c.h)
 	cv := canvas.New(c.w, c.h)
-	sc := New(settings)
+	sc := New(globals)
 	ctx := WithInstant(context.Background())
 	if _, err := sc.Build(ctx, cv, c.seed, c.w, c.h, nil); err != nil {
 		t.Fatalf("%s: build: %v", c.name, err)
@@ -192,7 +193,7 @@ func TestInstantMatchesAnimated(t *testing.T) {
 
 	build := func(ctx context.Context) [32]byte {
 		cv := canvas.New(w, h)
-		sc := New(NewSettings(sd, "", h))
+		sc := New(DefaultDirector().Direct(config.DefaultConfig(), sd, "", w, h))
 		if _, err := sc.Build(ctx, cv, sd, w, h, nil); err != nil {
 			t.Fatalf("build: %v", err)
 		}

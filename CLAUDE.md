@@ -44,8 +44,8 @@ seed + config ──Director──▶ globals ──Generators──▶ scene li
 ```
 
 - **`internal/scene`** is the deterministic core. Key pieces:
-  - `Scene.Build` (`scene.go`) is the single shared render path used by *both* binaries (so they're always pixel-identical). It builds a `Context` with seed-derived shared state (sky/ground gradients, ocean — see `newContext`), then for each element runs `Generate` → `RenderList`, accumulating the returned `SceneList`.
-  - `Scene.RenderList` is the renderers-only replay path: it partitions a stored scene list back to each owning element (via `Element.Schemas()`) and renders without generating. It still rebuilds the shared gradients/ocean from the seed (those aren't captured in the scene list yet — the known follow-on).
+  - `Scene.Build` (`scene.go`) is the single shared render path used by *both* binaries (so they're always pixel-identical). It builds a `Context` whose shared state comes from the globals — the **sky/ground gradients are fields of `Globals`** (derived by the director), read in `newContext`; only the ocean/land model is still rebuilt from the seed there (no renderer reads it). It then runs each element's `Generate` → `RenderList`, accumulating the returned `SceneList`.
+  - `Scene.RenderList` is the renderers-only replay path: it partitions a stored scene list back to each owning element (via `Element.Schemas()`) and renders without generating. Because the gradients live in the globals it's given, **its output is seed-independent** (`TestRenderListSeedIndependent` pins this) — the seed it receives only feeds the unused ocean.
   - An **`Element`** = `Generator` (`Generate`: globals → entities, all randomness, draws nothing) + `Renderer` (`RenderList`: entities → pixels, consumes no randomness) + `Schemas()`. The 9 elements (sky, stars, systemstars, planets, clouds, mountains, ground, cities, water) render back-to-front in the order set by `scene.New`.
   - `entity.go` holds the entity registry (schema key → factory) that lets a heterogeneous `SceneList` round-trip through YAML. `director.go`/`registry.go` hold the versioned director/generator/renderer registries selected by config keys.
 - **`internal/config`** — generation tunables (probabilities/limits), loadable from partial YAML (gaps filled from defaults).
@@ -58,9 +58,11 @@ seed + config ──Director──▶ globals ──Generators──▶ scene li
 
 `config <scene.png>` extracts the embedded layers to `scifi-<seed>.{seed.txt,config.yaml,globals.yaml,scene.yaml}`. `from <scene.png>` replays a scene file, with `--globals`/`--scene` choosing how deep to start (deepest wins). `from-config` is the inverse of `config`: it reassembles a scene from individual layer files (`--seed`/`--config`/`--globals`/`--scene`), each option skipping that layer's generation step. See `README.md` for the full UX.
 
-### Known gap vs. `specs/configuration-and-replayability.md`
+### Status vs. `specs/configuration-and-replayability.md`
 
-The spec is otherwise fully implemented (entities, the Director/Generator/Renderer split, partial/complete config, the four PNG chunks, and replay from every layer via `from`/`from-config`). The one unfinished piece: `Globals` (`director.go`) holds only `Seed/W/H/Settings`. The spec's globals are meant to be *all* pre-render derived state, but the **sky/ground gradients, ocean model, and per-element derived seeds are still re-derived from the master seed** in `Scene.newContext`/`deriveRng` rather than captured in `globals.yaml`. So replaying from `--globals`/`--scene` is **not yet seed-independent** — it still threads the master seed through to rebuild that shared state. Completing this means promoting those values into `Globals` as **new fields** (forward-compatible) or a new globals version — under the same freeze rules above.
+The spec is fully implemented (entities, the Director/Generator/Renderer split, partial/complete config, the four PNG chunks, and replay from every layer via `from`/`from-config`). The renderer-visible shared state — the sky and ground gradients — now lives in `Globals` and is recorded in `globals.yaml`, so **scene-list replay reproduces the image without the seed**.
+
+Two pieces of derived state remain seed-derived by design, neither affecting render-time reproducibility: (1) the **per-element generation RNG** (`deriveRng(seed, el.Name())`) — so *globals* replay (which re-runs generators) still needs the seed, which `globals.yaml` carries; and (2) the **ocean/land model** (`buildOcean` in `newContext`), which only generation reads (Cities placement) and which is already captured per-scene in the `WaterV0` entity for rendering. If a future need arises to make globals replay seed-free too, the per-element seeds would be promoted into `Globals` as new fields — under the freeze rules above.
 
 ## Conventions
 

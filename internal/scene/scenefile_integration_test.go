@@ -86,7 +86,7 @@ func TestSceneFilePayloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("globals load: %v", err)
 	}
-	if g2 != globals {
+	if !reflect.DeepEqual(g2, globals) {
 		t.Errorf("globals layer changed:\n got %+v\nwant %+v", g2, globals)
 	}
 	// Scene-list layer: must re-render to the same pixels.

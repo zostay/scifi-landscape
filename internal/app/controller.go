@@ -140,7 +140,7 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 
 	c.canvas.Clear(blackRGBA)
 
-	sc := scene.New(settings)
+	sc := scene.New(globals)
 	// Replaying from a recorded scene list skips generation and only renders;
 	// otherwise the full pipeline generates and renders, yielding the scene list.
 	var list scene.SceneList
