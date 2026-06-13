@@ -20,6 +20,9 @@ type SystemStars struct{}
 
 func (s *SystemStars) Name() string { return "system stars" }
 
+// Schemas lists the entity schema keys the system-stars element owns.
+func (s *SystemStars) Schemas() []string { return []string{SchemaSystemStarV0} }
+
 const (
 	sysAnimPerStar = 180 * time.Millisecond
 

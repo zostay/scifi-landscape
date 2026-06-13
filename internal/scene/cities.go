@@ -19,6 +19,9 @@ type Cities struct{}
 
 func (c *Cities) Name() string { return "cities" }
 
+// Schemas lists the entity schema keys the cities element owns.
+func (c *Cities) Schemas() []string { return []string{SchemaCityV0} }
+
 const (
 	cityChance             = 0.45
 	citiesAnimDuration     = 800 * time.Millisecond

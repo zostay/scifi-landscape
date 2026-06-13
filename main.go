@@ -7,6 +7,7 @@
 //	scifi-landscape -t dusk             # force the time of day
 //	scifi-landscape -c my.yaml          # tune generation with a config file
 //	scifi-landscape -f scene.png        # reproduce a saved scene file (seed + config)
+//	scifi-landscape from scene.png      # replay a scene file (--globals/--scene go deeper)
 //	scifi-landscape config scene.png    # extract a scene file's embedded layers to files
 //
 // Saving (S) writes a scene file: a PNG with the seed, config, globals, and
@@ -62,7 +63,13 @@ func run(flags *cli.SceneFlags) error {
 		fmt.Printf("scifi-landscape: seed %q → %d (reproduce with -s %q or -s %d)\n", seedSrc, s, seedSrc, s)
 	}
 
-	ebiten.SetWindowSize(flags.Width, flags.Height)
+	return runGame(ctrl, flags.Width, flags.Height)
+}
+
+// runGame opens the window at w x h and runs the controller's scene to
+// completion. It is the shared window/run path for a fresh scene and for replays.
+func runGame(ctrl *app.Controller, w, h int) error {
+	ebiten.SetWindowSize(w, h)
 	ebiten.SetWindowTitle("scifi-landscape")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	// Pause the game loop while the window is in the background so it doesn't
@@ -86,11 +93,84 @@ func main() {
 		},
 	}
 	flags = cli.AddSceneFlags(cmd)
-	cmd.AddCommand(configCmd())
+	cmd.AddCommand(fromCmd(), configCmd())
 
 	if err := cmd.Execute(); err != nil {
 		log.Fatalln("scifi-landscape:", err)
 	}
+}
+
+// fromCmd builds the "from" subcommand, which replays a PNG scene file. With no
+// flags it pulls the file's seed + config and plays the whole pipeline forward —
+// identical to "scifi-landscape --from <file>". The flags select a deeper entry
+// layer (the deepest wins), freezing more of the pipeline against future
+// algorithm changes:
+//
+//	--globals  use the file's globals (skip the director)
+//	--scene    render the file's recorded scene list (skip generation)
+//
+// In the deeper modes the scene is rendered at its stored size; --scene still
+// rebuilds the shared sky/ground gradients and ocean from the seed.
+func fromCmd() *cobra.Command {
+	var useGlobals, useScene bool
+	cmd := &cobra.Command{
+		Use:   "from <scene.png>",
+		Short: "Replay a PNG scene file, optionally from a deeper layer",
+		Long: `Replay a scene from a PNG scene file.
+
+With no flags this pulls the file's seed and config and plays the whole pipeline
+forward — the same as "scifi-landscape --from <scene.png>". The flags select a
+deeper layer to replay from (the deepest wins), which freezes more of the
+pipeline against future algorithm changes:
+
+  --globals  use the file's recorded globals, skipping the director
+  --scene    render the file's recorded scene list, skipping generation
+
+In --globals/--scene mode the scene is rendered at its stored size. Note that
+--scene still rebuilds the shared sky/ground gradients and ocean from the seed,
+so it freezes the generated entities, not that derived state.`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := args[0]
+
+			// Default mode: seed + config, played forward — exactly --from.
+			if !useGlobals && !useScene {
+				return run(&cli.SceneFlags{
+					From:   path,
+					Width:  cli.DefaultWidth,
+					Height: cli.DefaultHeight,
+				})
+			}
+
+			// The file's config is carried so a re-save embeds the right config.
+			cfg, _, err := cli.Resolve("", path, "")
+			if err != nil {
+				return err
+			}
+			g, list, err := cli.LoadReplay(path, useGlobals, useScene)
+			if err != nil {
+				return err
+			}
+
+			ctrl := app.NewController(g.W, g.H, "", cfg)
+			ctrl.SetReplay(g, list)
+			ctrl.Start(g.Seed)
+
+			layer := "globals"
+			if useScene {
+				layer = "scene list"
+			}
+			fmt.Printf("scifi-landscape: replaying %s from %s (seed %d, %dx%d)\n", layer, path, g.Seed, g.W, g.H)
+
+			return runGame(ctrl, g.W, g.H)
+		},
+	}
+	fl := cmd.Flags()
+	fl.BoolVar(&useGlobals, "globals", false, "replay from the file's globals (skip the director)")
+	fl.BoolVar(&useScene, "scene", false, "replay from the file's scene list (skip generation)")
+	return cmd
 }
 
 // configCmd builds the "config" subcommand, which extracts the reproducibility

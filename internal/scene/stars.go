@@ -18,6 +18,9 @@ type Stars struct{}
 
 func (s *Stars) Name() string { return "stars" }
 
+// Schemas lists the entity schema keys the stars element owns.
+func (s *Stars) Schemas() []string { return []string{SchemaStarV0} }
+
 const (
 	starsAnimDuration = 900 * time.Millisecond
 	starsAnimBatches  = 80

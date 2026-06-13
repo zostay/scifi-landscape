@@ -8,6 +8,7 @@ package scene
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -66,6 +67,11 @@ type Context struct {
 type Element interface {
 	Generator
 	Renderer
+	// Schemas lists the entity schema keys this element produces and renders. It
+	// lets Scene.RenderList partition a stored (flat) scene list back to the
+	// element that owns each entity, since an element's RenderList accepts only
+	// its own entity types.
+	Schemas() []string
 }
 
 // Scene is an ordered collection of elements plus the settings that shape them.
@@ -109,27 +115,7 @@ func New(s Settings) *Scene {
 // in render order — so a completed scene can be recorded into a scene file's
 // scene-list layer.
 func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h int, onElement func(string)) (SceneList, error) {
-	sctx := &Context{
-		Ctx:      ctx,
-		Canvas:   cv,
-		Settings: sc.Settings,
-		Seed:     seed,
-		W:        w,
-		H:        h,
-	}
-	// Build the sky and ground gradients up front so every element can share them
-	// (planets fade into the sky color; mountains base on the ground color). Each
-	// gets its own derived stream so they stay independent of each other and of
-	// the elements.
-	sctx.SkyGradient = buildSkyGradient(deriveRng(seed, "sky-gradient"), sc.Settings.Time)
-	gg := deriveRng(seed, "ground-gradient")
-	sctx.GroundVariable = gg.Float64() < groundVariableChance
-	sctx.GroundGradient = buildGroundGradient(gg, sc.Settings.Time, sctx.GroundVariable)
-
-	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
-	// to land while Water still reflects the city skyline.
-	sctx.Ocean = buildOcean(deriveRng(seed, "water"), sc.Settings, h)
-	sctx.LandAt = sctx.Ocean.LandAt
+	sctx := sc.newContext(ctx, cv, seed, w, h)
 
 	var list SceneList
 	for _, el := range sc.Elements {
@@ -150,6 +136,78 @@ func (sc *Scene) Build(ctx context.Context, cv *canvas.Canvas, seed int64, w, h 
 		list = append(list, part...)
 	}
 	return list, nil
+}
+
+// newContext builds the per-build render Context, including the scene-wide shared
+// state that elements read but do not own: the sky and ground gradients and the
+// ocean/land model. Each is derived from its own stream off the master seed (in a
+// fixed order, so the seed stays reproducible), so they are independent of each
+// other and of the elements. Both Build and RenderList use this, so a scene
+// rendered from its generated list sees exactly the shared state Build did.
+func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, w, h int) *Context {
+	sctx := &Context{
+		Ctx:      ctx,
+		Canvas:   cv,
+		Settings: sc.Settings,
+		Seed:     seed,
+		W:        w,
+		H:        h,
+	}
+	// Build the sky and ground gradients up front so every element can share them
+	// (planets fade into the sky color; mountains base on the ground color).
+	sctx.SkyGradient = buildSkyGradient(deriveRng(seed, "sky-gradient"), sc.Settings.Time)
+	gg := deriveRng(seed, "ground-gradient")
+	sctx.GroundVariable = gg.Float64() < groundVariableChance
+	sctx.GroundGradient = buildGroundGradient(gg, sc.Settings.Time, sctx.GroundVariable)
+
+	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
+	// to land while Water still reflects the city skyline.
+	sctx.Ocean = buildOcean(deriveRng(seed, "water"), sc.Settings, h)
+	sctx.LandAt = sctx.Ocean.LandAt
+	return sctx
+}
+
+// RenderList draws an already-generated scene list onto cv, skipping generation
+// entirely: it is the renderers-only replay path, the counterpart to Build. It
+// rebuilds the shared render context (sky/ground gradients, ocean) from seed and
+// settings — that derived state is not captured in the scene list — then hands
+// each element only the entities it owns, in pipeline order, so the image matches
+// what Build produced for the same list. onElement reports progress like Build.
+//
+// An entity whose schema no element claims is an error, so a scene list from a
+// newer build fails loudly rather than dropping entities silently.
+func (sc *Scene) RenderList(ctx context.Context, cv *canvas.Canvas, seed int64, w, h int, list SceneList, onElement func(string)) error {
+	sctx := sc.newContext(ctx, cv, seed, w, h)
+
+	// Map each schema to the index of the element that owns it, then partition the
+	// flat list into per-element sublists (order preserved within each element).
+	owner := map[string]int{}
+	for i, el := range sc.Elements {
+		for _, s := range el.Schemas() {
+			owner[s] = i
+		}
+	}
+	parts := make([]SceneList, len(sc.Elements))
+	for _, e := range list {
+		i, ok := owner[e.EntitySchema()]
+		if !ok {
+			return fmt.Errorf("scene: no element renders entity schema %q", e.EntitySchema())
+		}
+		parts[i] = append(parts[i], e)
+	}
+
+	for i, el := range sc.Elements {
+		if onElement != nil {
+			onElement(el.Name())
+		}
+		// Renderers consume no randomness, but set the element's stream for parity
+		// with Build in case a future renderer reads it.
+		sctx.Rng = deriveRng(seed, el.Name())
+		if err := el.RenderList(sctx, parts[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // deriveRng returns the independent random stream for one named part of a scene,

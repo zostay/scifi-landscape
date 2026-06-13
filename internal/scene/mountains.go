@@ -20,6 +20,9 @@ type Mountains struct{}
 
 func (m *Mountains) Name() string { return "mountains" }
 
+// Schemas lists the entity schema keys the mountains element owns.
+func (m *Mountains) Schemas() []string { return []string{SchemaMountainsV0} }
+
 const (
 	mountainsAnimDuration = 700 * time.Millisecond
 	mountainsAnimCols     = 90 // animation column-batches

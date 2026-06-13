@@ -18,6 +18,9 @@ type Ground struct{}
 
 func (g *Ground) Name() string { return "ground" }
 
+// Schemas lists the entity schema keys the ground element owns.
+func (g *Ground) Schemas() []string { return []string{SchemaGroundV0} }
+
 const (
 	groundAnimDuration = 1000 * time.Millisecond
 

@@ -31,6 +31,10 @@ type Controller struct {
 	config       config.Config
 	canvas       *canvas.Canvas
 
+	// replay, when set, makes the next run reproduce a scene file's deeper layers
+	// instead of deriving everything from the seed (see SetReplay).
+	replay replaySpec
+
 	mu     sync.Mutex
 	status Status
 	// globals are the derived scene-wide values of the current scene, kept so a
@@ -41,6 +45,15 @@ type Controller struct {
 	sceneList scene.SceneList
 	cancel    context.CancelFunc
 	done      chan struct{} // closed when the current run goroutine exits
+}
+
+// replaySpec selects how much of a scene file to reuse on the next run instead of
+// regenerating from the seed. A nil globals means "derive globals via the director"
+// (the normal path); a non-nil globals skips the director. A non-nil sceneList
+// skips generation entirely and renders the recorded entities.
+type replaySpec struct {
+	globals   *scene.Globals
+	sceneList scene.SceneList
 }
 
 // NewController creates a controller for a w x h scene. cfg is the (complete)
@@ -56,6 +69,15 @@ func NewController(w, h int, timeOverride string, cfg config.Config) *Controller
 		config:       cfg,
 		canvas:       canvas.New(w, h),
 	}
+}
+
+// SetReplay configures the next Start to reproduce a scene file's deeper layers
+// rather than deriving the scene from the seed alone. Pass a non-nil globals to
+// use the file's globals (skipping the director); also pass a non-nil list to
+// render the file's recorded scene list (skipping generation). It must be called
+// before Start. The controller's W/H should match globals.W/H.
+func (c *Controller) SetReplay(globals *scene.Globals, list scene.SceneList) {
+	c.replay = replaySpec{globals: globals, sceneList: list}
 }
 
 // Canvas returns the shared drawing surface.
@@ -97,8 +119,14 @@ func (c *Controller) Start(seed int64) {
 func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 	defer close(done)
 
-	// The director turns seed + config into the scene-wide globals.
-	globals := c.director().Direct(c.config, seed, c.timeOverride, c.W, c.H)
+	// Globals come from the scene file when replaying from that layer; otherwise
+	// the director turns seed + config into them.
+	var globals scene.Globals
+	if c.replay.globals != nil {
+		globals = *c.replay.globals
+	} else {
+		globals = c.director().Direct(c.config, seed, c.timeOverride, c.W, c.H)
+	}
 	settings := globals.Settings
 
 	c.mu.Lock()
@@ -113,7 +141,16 @@ func (c *Controller) run(ctx context.Context, seed int64, done chan struct{}) {
 	c.canvas.Clear(blackRGBA)
 
 	sc := scene.New(settings)
-	list, err := sc.Build(ctx, c.canvas, seed, c.W, c.H, c.setCurrent)
+	// Replaying from a recorded scene list skips generation and only renders;
+	// otherwise the full pipeline generates and renders, yielding the scene list.
+	var list scene.SceneList
+	var err error
+	if c.replay.sceneList != nil {
+		list = c.replay.sceneList
+		err = sc.RenderList(ctx, c.canvas, globals.Seed, c.W, c.H, list, c.setCurrent)
+	} else {
+		list, err = sc.Build(ctx, c.canvas, globals.Seed, c.W, c.H, c.setCurrent)
+	}
 	if err != nil {
 		return // cancelled
 	}

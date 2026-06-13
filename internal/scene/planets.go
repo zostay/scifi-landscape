@@ -19,6 +19,11 @@ type Planets struct{}
 
 func (p *Planets) Name() string { return "planets" }
 
+// Schemas lists the entity schema keys the planets element owns.
+func (p *Planets) Schemas() []string {
+	return []string{SchemaPlanetGasGiantV0, SchemaPlanetMoonV0}
+}
+
 const (
 	planetsAnimDuration = 900 * time.Millisecond
 

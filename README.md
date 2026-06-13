@@ -94,6 +94,25 @@ are loaded (an explicit `--seed` or `--config` still takes precedence), so the
 scene regenerates pixel-for-pixel. This makes a saved image self-describing — it
 carries its own recipe.
 
+### Replaying from a deeper layer
+
+The `from` subcommand replays a scene file and lets you choose **how deep** into
+the file to start, freezing more of the pipeline (`config → director → globals →
+generators → scene list → renderers`) against future algorithm changes. With no
+flags it is identical to `--from`; the flags pick a deeper entry layer, and the
+deepest selected wins:
+
+```sh
+go run . from scene.png            # seed + config -> director -> ... (= --from)
+go run . from scene.png --globals  # use the file's globals (skip the director)
+go run . from scene.png --scene    # render the file's scene list (skip generation)
+```
+
+In `--globals`/`--scene` mode the scene renders at its stored size. Note that
+`--scene` still rebuilds the shared sky/ground gradients and ocean from the seed
+(those aren't captured in the scene list yet), so it freezes the *generated
+entities*, not that derived state.
+
 To pull those embedded layers back out as files — to inspect them or reuse the
 config with `--config` — use the `config` subcommand. It writes each requested
 layer to a file named after the scene's seed: `scifi-<seed>.config.yaml`,

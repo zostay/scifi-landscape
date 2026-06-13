@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zostay/scifi-landscape/internal/config"
+	"github.com/zostay/scifi-landscape/internal/scene"
 	"github.com/zostay/scifi-landscape/internal/scenefile"
 )
 
@@ -101,5 +103,81 @@ func TestExtractSceneNotPNG(t *testing.T) {
 
 	if _, _, err := ExtractScene(path, allLayers); err == nil {
 		t.Fatal("ExtractScene: want error for non-PNG input, got nil")
+	}
+}
+
+// globalsYAML returns a valid embedded globals chunk for seed 99 at 320x180.
+func globalsYAML(t *testing.T) string {
+	t.Helper()
+	g := scene.DefaultDirector().Direct(config.DefaultConfig(), 99, "", 320, 180)
+	y, err := g.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(y)
+}
+
+// A minimal but valid scene-list chunk: one sky entity.
+const sceneListYAML = "- schema: sky.v0\n  data: {}\n"
+
+func TestLoadReplayGlobals(t *testing.T) {
+	path := writeScene(t, map[string]string{
+		scenefile.KeySeed:    "99",
+		scenefile.KeyGlobals: globalsYAML(t),
+	})
+
+	g, list, err := LoadReplay(path, true, false)
+	if err != nil {
+		t.Fatalf("LoadReplay: %v", err)
+	}
+	if g == nil || g.Seed != 99 || g.W != 320 || g.H != 180 {
+		t.Errorf("globals = %+v, want seed 99 at 320x180", g)
+	}
+	if list != nil {
+		t.Errorf("list = %v, want nil when useScene is false", list)
+	}
+}
+
+func TestLoadReplayScene(t *testing.T) {
+	path := writeScene(t, map[string]string{
+		scenefile.KeySeed:      "99",
+		scenefile.KeyGlobals:   globalsYAML(t),
+		scenefile.KeySceneList: sceneListYAML,
+	})
+
+	g, list, err := LoadReplay(path, false, true)
+	if err != nil {
+		t.Fatalf("LoadReplay: %v", err)
+	}
+	if g == nil {
+		t.Fatal("globals = nil, want the file's globals (scene replay needs them)")
+	}
+	if len(list) != 1 {
+		t.Errorf("list len = %d, want 1", len(list))
+	}
+}
+
+func TestLoadReplayMissingGlobals(t *testing.T) {
+	// Only a seed: an older scene file with no globals layer.
+	path := writeScene(t, map[string]string{scenefile.KeySeed: "99"})
+
+	if _, _, err := LoadReplay(path, true, false); err == nil {
+		t.Fatal("LoadReplay: want error when globals layer is absent, got nil")
+	} else if !strings.Contains(err.Error(), "no embedded globals") {
+		t.Errorf("error = %q, want it to mention %q", err, "no embedded globals")
+	}
+}
+
+func TestLoadReplayMissingScene(t *testing.T) {
+	// Globals present but no scene list (a scene file from before scene-list embedding).
+	path := writeScene(t, map[string]string{
+		scenefile.KeySeed:    "99",
+		scenefile.KeyGlobals: globalsYAML(t),
+	})
+
+	if _, _, err := LoadReplay(path, false, true); err == nil {
+		t.Fatal("LoadReplay: want error when scene-list layer is absent, got nil")
+	} else if !strings.Contains(err.Error(), "no embedded scene list") {
+		t.Errorf("error = %q, want it to mention %q", err, "no embedded scene list")
 	}
 }

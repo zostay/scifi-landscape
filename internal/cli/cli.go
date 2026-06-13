@@ -15,6 +15,13 @@ import (
 	"github.com/zostay/scifi-landscape/internal/scenefile"
 )
 
+// Default scene dimensions, used when no -w/-h is given (and by the `from`
+// subcommand's default mode, which renders at this size like a bare --from).
+const (
+	DefaultWidth  = 1280
+	DefaultHeight = 720
+)
+
 // SceneFlags holds the scene inputs shared by the windowed app and the headless
 // renderer. Bind them to a cobra command with AddSceneFlags, then pass Seed,
 // Config, and From to Resolve.
@@ -35,8 +42,8 @@ func AddSceneFlags(cmd *cobra.Command) *SceneFlags {
 	fl := cmd.Flags()
 	fl.StringVarP(&f.Seed, "seed", "s", "", "scene seed: a number, or any text (hashed); empty picks a random one")
 	fl.StringVarP(&f.Time, "time", "t", "", "force time of day: midday, dusk, or twilight")
-	fl.IntVarP(&f.Width, "width", "w", 1280, "scene width in pixels")
-	fl.IntVar(&f.Height, "height", 720, "scene height in pixels")
+	fl.IntVarP(&f.Width, "width", "w", DefaultWidth, "scene width in pixels")
+	fl.IntVar(&f.Height, "height", DefaultHeight, "scene height in pixels")
 	fl.StringVarP(&f.Config, "config", "c", "", "YAML config file (partial or complete) to tune generation")
 	fl.StringVarP(&f.From, "from", "f", "", "reproduce from a scene file (PNG): supplies seed and config unless overridden")
 	return f
@@ -144,4 +151,39 @@ func Resolve(configPath, fromPath, seedFlag string) (cfg config.Config, seedStr 
 		seedStr = fileSeed
 	}
 	return cfg, seedStr, nil
+}
+
+// LoadReplay loads the deeper replay layers from the scene file at path for the
+// `from` subcommand's --globals/--scene modes. It always returns the file's
+// globals (the settings, seed, and dimensions a deeper replay needs) and, when
+// useScene is set, the recorded scene list. A requested layer that the file does
+// not carry is an error, with a message naming the missing layer — older scene
+// files predate the globals and scene-list layers.
+//
+// useScene implies useGlobals: rendering a stored scene list still needs the
+// globals to rebuild the shared render context (gradients, ocean) and to size the
+// scene.
+func LoadReplay(path string, useGlobals, useScene bool) (*scene.Globals, scene.SceneList, error) {
+	texts, err := scenefile.ReadTextsFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read scene file %q: %w", path, err)
+	}
+	ls, err := scene.LoadSceneTexts(texts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse scene file %q: %w", path, err)
+	}
+
+	if (useGlobals || useScene) && !ls.HasGlobals {
+		return nil, nil, fmt.Errorf("scene file %q has no embedded globals to replay from", path)
+	}
+	globals := ls.Globals
+
+	var list scene.SceneList
+	if useScene {
+		if !ls.HasSceneList {
+			return nil, nil, fmt.Errorf("scene file %q has no embedded scene list to replay from", path)
+		}
+		list = ls.SceneList
+	}
+	return &globals, list, nil
 }

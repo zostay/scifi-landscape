@@ -29,6 +29,11 @@ type Clouds struct{}
 
 func (cl *Clouds) Name() string { return "clouds" }
 
+// Schemas lists the entity schema keys the clouds element owns.
+func (cl *Clouds) Schemas() []string {
+	return []string{SchemaCloudsHighV0, SchemaCloudLowV0}
+}
+
 const (
 	cloudsAnimDuration = 1000 * time.Millisecond
 

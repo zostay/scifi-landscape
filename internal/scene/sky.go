@@ -17,6 +17,9 @@ type Sky struct{}
 
 func (s *Sky) Name() string { return "sky" }
 
+// Schemas lists the entity schema keys the sky element owns.
+func (s *Sky) Schemas() []string { return []string{SchemaSkyV0} }
+
 // skyAnimDuration is the wall-clock time the sky takes to wipe in.
 const skyAnimDuration = 1100 * time.Millisecond
 

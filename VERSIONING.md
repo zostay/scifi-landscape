@@ -93,9 +93,16 @@ and re-render to the same pixels.
 For `sky` and `water` the per-scene content (the sky gradient, the ocean/land
 model) is a shared *global* built in `Scene.Build`, not drawn from the element's
 own random stream — so their entities are thin (a marker / the ocean params) and
-their renderers read the shared global from the `Context`. Promoting those derived
-globals into `globals.yaml` (so a scene file's scene-list layer is fully
-self-contained without re-deriving from the seed) is the remaining follow-on. Both
-the headless renderer and the live app (on a completed build) now record all four
-layers — seed + config + globals + scene list — so a scene reproduces from any of
-them.
+their renderers read the shared global from the `Context`. Both the headless
+renderer and the live app (on a completed build) record all four layers — seed +
+config + globals + scene list — so a scene reproduces from any of them.
+
+Replaying from each layer is exposed by the `scifi-landscape from` subcommand:
+the default re-derives everything from seed + config; `--globals` uses the stored
+globals (skipping the director); and `--scene` renders the stored scene list
+directly (`Scene.RenderList`, skipping the generators). The remaining follow-on is
+that `Scene.RenderList` still rebuilds the shared sky/ground gradients and ocean
+from the seed (`Scene.newContext`), since those derived globals are not yet
+captured in `globals.yaml`; so `--scene` freezes the generated entities but not
+that shared state. The `TestRenderListMatchesBuild` test pins
+`RenderList(Build's list) == Build` byte-for-byte (including a YAML round-trip).

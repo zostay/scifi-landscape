@@ -22,6 +22,9 @@ type Water struct{}
 
 func (w *Water) Name() string { return "water" }
 
+// Schemas lists the entity schema keys the water element owns.
+func (w *Water) Schemas() []string { return []string{SchemaWaterV0} }
+
 const (
 	waterChance       = 0.40
 	waterAnimDuration = 900 * time.Millisecond
