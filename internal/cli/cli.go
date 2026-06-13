@@ -187,3 +187,45 @@ func LoadReplay(path string, useGlobals, useScene bool) (*scene.Globals, scene.S
 	}
 	return &globals, list, nil
 }
+
+// LoadConfigFile reads and parses a standalone config YAML file (as written by
+// `config`, possibly edited). A partial config is completed from defaults.
+func LoadConfigFile(path string) (config.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("read config %q: %w", path, err)
+	}
+	cfg, err := config.Load(data)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("load config %q: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// LoadGlobalsFile reads and parses a standalone globals YAML file (as written by
+// `config`), the director's output for a scene.
+func LoadGlobalsFile(path string) (scene.Globals, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return scene.Globals{}, fmt.Errorf("read globals %q: %w", path, err)
+	}
+	g, err := scene.UnmarshalGlobals(data)
+	if err != nil {
+		return scene.Globals{}, fmt.Errorf("load globals %q: %w", path, err)
+	}
+	return g, nil
+}
+
+// LoadSceneListFile reads and parses a standalone scene-list YAML file (as written
+// by `config`), the generators' output for a scene.
+func LoadSceneListFile(path string) (scene.SceneList, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read scene list %q: %w", path, err)
+	}
+	list, err := scene.UnmarshalSceneList(data)
+	if err != nil {
+		return nil, fmt.Errorf("load scene list %q: %w", path, err)
+	}
+	return list, nil
+}

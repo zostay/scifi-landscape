@@ -181,3 +181,57 @@ func TestLoadReplayMissingScene(t *testing.T) {
 		t.Errorf("error = %q, want it to mention %q", err, "no embedded scene list")
 	}
 }
+
+// writeFile writes content to a temp file and returns its path.
+func writeFile(t *testing.T, name, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadConfigFile(t *testing.T) {
+	// A partial config is completed from defaults, so loading succeeds.
+	cfg, err := LoadConfigFile(writeFile(t, "config.yaml", "horizon:\n  min: 0.5\n"))
+	if err != nil {
+		t.Fatalf("LoadConfigFile: %v", err)
+	}
+	if cfg.Horizon.Min != 0.5 {
+		t.Errorf("Horizon.Min = %v, want 0.5", cfg.Horizon.Min)
+	}
+
+	if _, err := LoadConfigFile(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Error("LoadConfigFile: want error for missing file, got nil")
+	}
+}
+
+func TestLoadGlobalsFile(t *testing.T) {
+	g, err := LoadGlobalsFile(writeFile(t, "globals.yaml", globalsYAML(t)))
+	if err != nil {
+		t.Fatalf("LoadGlobalsFile: %v", err)
+	}
+	if g.Seed != 99 || g.W != 320 || g.H != 180 {
+		t.Errorf("globals = %+v, want seed 99 at 320x180", g)
+	}
+
+	if _, err := LoadGlobalsFile(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Error("LoadGlobalsFile: want error for missing file, got nil")
+	}
+}
+
+func TestLoadSceneListFile(t *testing.T) {
+	list, err := LoadSceneListFile(writeFile(t, "scene.yaml", sceneListYAML))
+	if err != nil {
+		t.Fatalf("LoadSceneListFile: %v", err)
+	}
+	if len(list) != 1 {
+		t.Errorf("list len = %d, want 1", len(list))
+	}
+
+	// An unknown schema is a hard error (not a silently dropped entity).
+	if _, err := LoadSceneListFile(writeFile(t, "bad.yaml", "- schema: nope.v0\n  data: {}\n")); err == nil {
+		t.Error("LoadSceneListFile: want error for unknown schema, got nil")
+	}
+}

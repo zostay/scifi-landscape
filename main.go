@@ -8,6 +8,7 @@
 //	scifi-landscape -c my.yaml          # tune generation with a config file
 //	scifi-landscape -f scene.png        # reproduce a saved scene file (seed + config)
 //	scifi-landscape from scene.png      # replay a scene file (--globals/--scene go deeper)
+//	scifi-landscape from-config -c c.yaml --globals g.yaml  # build from individual layer files
 //	scifi-landscape config scene.png    # extract a scene file's embedded layers to files
 //
 // Saving (S) writes a scene file: a PNG with the seed, config, globals, and
@@ -26,6 +27,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -33,6 +35,8 @@ import (
 
 	"github.com/zostay/scifi-landscape/internal/app"
 	"github.com/zostay/scifi-landscape/internal/cli"
+	"github.com/zostay/scifi-landscape/internal/config"
+	"github.com/zostay/scifi-landscape/internal/scene"
 	"github.com/zostay/scifi-landscape/internal/seed"
 )
 
@@ -93,7 +97,7 @@ func main() {
 		},
 	}
 	flags = cli.AddSceneFlags(cmd)
-	cmd.AddCommand(fromCmd(), configCmd())
+	cmd.AddCommand(fromCmd(), fromConfigCmd(), configCmd())
 
 	if err := cmd.Execute(); err != nil {
 		log.Fatalln("scifi-landscape:", err)
@@ -171,6 +175,118 @@ so it freezes the generated entities, not that derived state.`,
 	fl.BoolVar(&useGlobals, "globals", false, "replay from the file's globals (skip the director)")
 	fl.BoolVar(&useScene, "scene", false, "replay from the file's scene list (skip generation)")
 	return cmd
+}
+
+// fromConfigCmd builds the "from-config" subcommand, which assembles a scene from
+// individual reproducibility-layer files — the counterpart to what `config`
+// extracts. Each option supplies one layer so its pipeline step need not be
+// generated; layers not supplied are computed forward from the ones that are, and
+// the deepest supplied layer is the entry point.
+func fromConfigCmd() *cobra.Command {
+	var seedFlag, configPath, globalsPath, scenePath string
+	cmd := &cobra.Command{
+		Use:   "from-config",
+		Short: "Build a scene from individual seed/config/globals/scene layer files",
+		Long: `Assemble a scene from individual layer files, the counterpart to the files the
+"config" subcommand extracts. Each option supplies one reproducibility layer so
+that layer's pipeline step is not generated:
+
+  --seed <s>        use this seed (a number, or text hashed to one)
+  --config <file>   use this config YAML (skips the built-in defaults)
+  --globals <file>  use these globals YAML (skips the director)
+  --scene <file>    render this scene list YAML (skips generation)
+
+Layers not supplied are computed forward from the ones that are, so with no
+options it draws a fresh random scene. When --globals is given the scene renders
+at its stored size and the director is skipped (--config then affects only a
+re-save). An explicit --seed always wins, reseeding generation and the shared
+gradients/ocean even when --globals is given.`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := config.DefaultConfig()
+			if configPath != "" {
+				loaded, err := cli.LoadConfigFile(configPath)
+				if err != nil {
+					return err
+				}
+				cfg = loaded
+			}
+
+			var globals *scene.Globals
+			if globalsPath != "" {
+				g, err := cli.LoadGlobalsFile(globalsPath)
+				if err != nil {
+					return err
+				}
+				globals = &g
+			}
+
+			var list scene.SceneList
+			if scenePath != "" {
+				l, err := cli.LoadSceneListFile(scenePath)
+				if err != nil {
+					return err
+				}
+				list = l
+			}
+
+			// Seed: an explicit --seed wins; else the globals' seed; else random.
+			var s int64
+			switch {
+			case seedFlag != "":
+				s = seed.Resolve(seedFlag)
+			case globals != nil:
+				s = globals.Seed
+			default:
+				s = resolveSeed("") // random
+			}
+
+			// Dimensions come from the globals when provided, else the defaults.
+			w, h := cli.DefaultWidth, cli.DefaultHeight
+			if globals != nil {
+				w, h = globals.W, globals.H
+				globals.Seed = s // honor --seed over the stored seed
+			}
+
+			ctrl := app.NewController(w, h, "", cfg)
+			ctrl.SetReplay(globals, list)
+			ctrl.Start(s)
+
+			fmt.Printf("scifi-landscape: from-config [%s] seed %d (%dx%d)\n", providedLayers(seedFlag, configPath, globalsPath, scenePath), s, w, h)
+
+			return runGame(ctrl, w, h)
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVarP(&seedFlag, "seed", "s", "", "scene seed: a number or text (hashed); overrides a random seed and any in --globals")
+	fl.StringVarP(&configPath, "config", "c", "", "config YAML file to use instead of the built-in defaults")
+	fl.StringVar(&globalsPath, "globals", "", "globals YAML file to use (skips the director)")
+	fl.StringVar(&scenePath, "scene", "", "scene-list YAML file to render (skips generation)")
+	return cmd
+}
+
+// providedLayers summarizes which from-config layers were supplied, for the
+// startup log line.
+func providedLayers(seedFlag, configPath, globalsPath, scenePath string) string {
+	var ls []string
+	if seedFlag != "" {
+		ls = append(ls, "seed")
+	}
+	if configPath != "" {
+		ls = append(ls, "config")
+	}
+	if globalsPath != "" {
+		ls = append(ls, "globals")
+	}
+	if scenePath != "" {
+		ls = append(ls, "scene")
+	}
+	if len(ls) == 0 {
+		return "fresh"
+	}
+	return strings.Join(ls, "+")
 }
 
 // configCmd builds the "config" subcommand, which extracts the reproducibility

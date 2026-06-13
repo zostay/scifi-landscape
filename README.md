@@ -126,6 +126,27 @@ go run . config scene.png --seed          # also write the seed file
 go run . config scene.png --config=false  # skip the config; write the rest
 ```
 
+### Building from individual layer files
+
+`from-config` is the inverse of `config`: it assembles a scene from the separate
+layer files (which you can hand-edit). Each option supplies one layer so its
+pipeline step is not generated; whatever you omit is computed forward from what
+you give, and the deepest supplied layer is the entry point:
+
+```sh
+go run . from-config -s mars                                  # fresh scene, that seed
+go run . from-config -c scifi-7.config.yaml -s 7              # custom config + seed
+go run . from-config --globals scifi-7.globals.yaml          # skip the director
+go run . from-config --globals scifi-7.globals.yaml \
+                     --scene   scifi-7.scene.yaml             # skip generation too
+```
+
+With `--globals` the scene renders at its stored size and the director is skipped
+(so `--config` then only affects a re-save). An explicit `--seed` always wins,
+reseeding generation and the shared gradients even alongside `--globals`. As with
+`from --scene`, rendering a scene list still rebuilds the shared gradients/ocean
+from the seed.
+
 `VERSIONING.md` describes the reproducibility contract that keeps old seeds and old
 scene files rendering the same as the generator evolves.
 
