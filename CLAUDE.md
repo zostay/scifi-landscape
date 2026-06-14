@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A procedural sci-fi landscape generator (Go + [Ebiten](https://ebitengine.org/)). A scene is drawn one element at a time, animated on screen, and is **fully determined by a single seed** — the same seed always reproduces the exact same image. There are two binaries: the windowed app (root package, `main.go`) and a headless renderer (`cmd/render`).
 
+**Design intent: this is an always-headed GUI app — never headless.** Watching scenes build is the point, and the roadmap is *more* in-app interactivity (a scene editor: drag planets, tune gas-giant bands, lock parts of a scene). The `scifi-landscape` binary imports Ebiten, whose `internal/ui` package initializes GLFW in a package `init()` — so the binary **requires a display to even start** (`--help`/`config`/`from` all need a window server; they segfault headless). This is by design, not a bug to "fix" by making the app run headless. The `config`/`from`/`from-config` CLI subcommands are a stop-gap, not the project's direction — don't invest in headless CLI support. For batch/headless PNG rendering, `cmd/render` is the GUI-free path (it links no Ebiten). When adding a feature that's genuinely GUI-free and must run headless, put it in a binary that does **not** import `internal/app`/Ebiten (like `cmd/render`).
+
 ## Commands
 
 Use the **Makefile**, not bare `go`, for anything that touches the GUI. It sets `CGO_CFLAGS=-Wno-deprecated-declarations` (silences ebiten's macOS Metal cgo deprecation warnings) and filters benign `[CAMetalLayer nextDrawable]` runtime noise out of `make run`'s stderr.

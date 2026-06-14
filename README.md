@@ -8,6 +8,15 @@ screen and can be saved to a PNG.
 
 This is a modern reimagining of an old 256-color graphics experiment.
 
+> **This is a graphical, always-headed app — it requires a display.** Watching
+> scenes build on screen is the whole point, and the roadmap is *more*
+> interactivity (e.g. an in-app scene editor: drag a planet, tune a gas giant's
+> bands, lock parts of a scene while the rest stays random). It is not designed to
+> run headless, and the windowed `scifi-landscape` binary will not start without a
+> display. The `config` / `from` / `from-config` CLI subcommands are a convenience
+> stop-gap, not the direction of the project; for batch/headless PNG rendering use
+> the separate `./cmd/render` tool, which links no GUI.
+
 ## Running
 
 ```sh
