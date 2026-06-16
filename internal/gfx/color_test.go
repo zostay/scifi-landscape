@@ -10,13 +10,13 @@ func TestHSVToRGBPrimaries(t *testing.T) {
 		hsv  HSV
 		want RGB
 	}{
-		{HSV{0, 1, 1}, RGB{1, 0, 0}},     // red
-		{HSV{120, 1, 1}, RGB{0, 1, 0}},   // green
-		{HSV{240, 1, 1}, RGB{0, 0, 1}},   // blue
-		{HSV{0, 0, 1}, RGB{1, 1, 1}},     // white
-		{HSV{0, 0, 0}, RGB{0, 0, 0}},     // black
-		{HSV{360, 1, 1}, RGB{1, 0, 0}},   // hue wraps
-		{HSV{-120, 1, 1}, RGB{0, 0, 1}},  // negative hue wraps
+		{HSV{0, 1, 1}, RGB{1, 0, 0}},    // red
+		{HSV{120, 1, 1}, RGB{0, 1, 0}},  // green
+		{HSV{240, 1, 1}, RGB{0, 0, 1}},  // blue
+		{HSV{0, 0, 1}, RGB{1, 1, 1}},    // white
+		{HSV{0, 0, 0}, RGB{0, 0, 0}},    // black
+		{HSV{360, 1, 1}, RGB{1, 0, 0}},  // hue wraps
+		{HSV{-120, 1, 1}, RGB{0, 0, 1}}, // negative hue wraps
 	}
 	for _, c := range cases {
 		got := c.hsv.RGB()

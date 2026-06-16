@@ -24,6 +24,15 @@ Use the **Makefile**, not bare `go`, for anything that touches the GUI. It sets 
 
 - `UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden` regenerates `golden.txt`. Pre-release this is for deliberate output changes (review the diff). **Post-release, a diff to an *existing* golden case is a freeze violation** — existing seeds must not move; golden.txt only *grows* (new cases / new versions), never changes existing rows. Never regenerate to "make the test pass."
 
+### The two contract gates (`make verify` runs both)
+
+The change contract from `VERSIONING.md` is enforced mechanically — run `make verify` any time, and the `/release` skill runs it before tagging:
+
+- **Behavioral freeze** — `TestGolden` (above), plus `TestGoldenCoversAllAlgorithms` (`contract_test.go`) which fails if a registered generator/renderer isn't in the golden-covered default pipeline (so no algorithm escapes the freeze).
+- **Structural freeze** — `TestSchemaContract` (`contract_test.go` + `testdata/contract-schema.txt`) reflects every serialized type (entity schemas, `Globals`, `Config`) into `<Type>/<yamlKey> <goType>` lines and fails if any recorded line **disappears** (a released serialized field renamed/retyped/removed). Adding fields/schemas is fine; after an *additive* change regenerate the append-only baseline with `UPDATE_CONTRACT=1 go test ./internal/scene -run TestSchemaContract`. Regenerating to drop a line is the violation.
+
+When a gate fails, the fix is a **new version** (`*.v1`, `…V1`), never editing the released algorithm/schema — see the release-freeze rules above. To cut a release, use the `/release` skill (verifies, then proposes + tags `vX.Y.Z`); it's tagging-only (no binaries).
+
 ### The release freeze — Directors, Generators, Renderers, entity schemas
 
 **The first release is imminent; after it these rules are enforced, so treat them as binding now.** The full rationale is `VERSIONING.md`; the operational rules to apply when touching the deterministic core (`internal/scene`):

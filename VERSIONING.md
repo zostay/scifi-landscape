@@ -71,16 +71,39 @@ guarding the failure over altering the algorithm.
 
 ## Guards
 
-`internal/scene/registry_test.go` enforces parts of this mechanically: entity
-schema keys and algorithm keys must be versioned (`.v<n>`), every renderer must
-have a matching generator, and the default config's director must resolve. The
-golden suite (`golden_test.go` + `testdata/golden.txt`) is the backstop: it fails
-if any seed in its matrix renders even one pixel differently. Regenerate goldens
-only for an intentional, reviewed output change:
+The contract is enforced mechanically by the test suite — run `make verify` (or
+`go test ./internal/scene`) any time, and always before a release:
 
-```
-UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden
-```
+- **Behavioral freeze — `golden_test.go` + `testdata/golden.txt`.** The backstop:
+  it fails if any seed in its matrix renders even one pixel differently, so no
+  released algorithm can change its output unnoticed. `TestGoldenCoversAllAlgorithms`
+  (`contract_test.go`) guards that *every* registered generator/renderer is in the
+  golden-covered default pipeline, so nothing escapes this net. Regenerate goldens
+  only for an intentional, reviewed output change:
+
+  ```
+  UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden
+  ```
+
+- **Structural freeze — `contract_test.go` (`TestSchemaContract`) +
+  `testdata/contract-schema.txt`.** Reflects every serialized type (entity schemas,
+  `Globals`, `Config`) into a `<Type>/<yamlKey> <goType>` signature and fails if any
+  recorded line disappears — i.e. a released serialized field was renamed, retyped,
+  or removed. Adding fields/schemas is allowed; after such an additive change,
+  regenerate the (append-only) baseline:
+
+  ```
+  UPDATE_CONTRACT=1 go test ./internal/scene -run TestSchemaContract
+  ```
+
+  Regenerating to *drop* a line is the violation a reviewer catches in the diff.
+
+- **Naming — `registry_test.go`.** Entity schema keys and algorithm keys must be
+  versioned (`.v<n>`), every renderer must have a matching generator, and the
+  default config's pipeline must resolve against the registries.
+
+The `/release` skill (`.claude/skills/release/SKILL.md`) runs `make verify` as the
+final gate, then creates and pushes the annotated version tag.
 
 ## Migration status
 

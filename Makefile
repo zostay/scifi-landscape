@@ -13,7 +13,7 @@ METAL_NOISE := -e 'CAMetalLayer nextDrawable'
 GO   ?= go
 ARGS ?=
 
-.PHONY: build run render test vet fmt clean
+.PHONY: build run render test vet fmt verify clean
 
 # Build the windowed app binary.
 build:
@@ -39,6 +39,20 @@ vet:
 
 fmt:
 	$(GO) fmt ./...
+
+# Release gate: build, vet, gofmt check, and the full test suite — which
+# includes the reproducibility golden (behavioral freeze) and the schema
+# contract (additive-only data freeze). The `/release` skill runs this before
+# tagging. Fails if anything is unformatted, unbuilt, or a contract is broken.
+verify:
+	$(GO) build ./...
+	$(GO) vet ./...
+	@unformatted=$$(gofmt -l . | grep -v '/testdata/' || true); \
+	if [ -n "$$unformatted" ]; then \
+		echo "gofmt: the following files are not formatted:"; echo "$$unformatted"; exit 1; \
+	fi
+	$(GO) test ./...
+	@echo "verify: OK"
 
 # Remove build artifacts.
 clean:
