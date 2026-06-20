@@ -46,6 +46,15 @@ type Context struct {
 	GroundGradient gfx.Gradient
 	GroundVariable bool
 
+	// Height is the scene-wide vantage point over the ground plane (from the globals,
+	// derived by the director). The v1 ground/cities/water renderers read it to widen
+	// the perspective in low mode; it is never re-derived here, so RenderList stays
+	// seed-independent.
+	Height HeightMode
+	// Perspective carries the resolved low-mode ground-plane parameters (from the
+	// globals); the v1 generators/renderers read it when Height == Low.
+	Perspective Perspective
+
 	// Ocean is the scene's resolved ocean/land model, decided up front (like the
 	// gradients) so both Cities and Water can use it: Cities to place buildings
 	// only on land, Water to leave islands and the coast unflooded while still
@@ -187,6 +196,8 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.SkyGradient = g.SkyGradient
 	sctx.GroundGradient = g.GroundGradient
 	sctx.GroundVariable = g.GroundVariable
+	sctx.Height = g.Height
+	sctx.Perspective = g.Perspective
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
 	// to land while Water still reflects the city skyline.

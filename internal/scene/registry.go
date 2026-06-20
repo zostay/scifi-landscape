@@ -100,4 +100,12 @@ func init() {
 	RegisterElement("ground.v0", &Ground{})
 	RegisterElement("cities.v0", &Cities{})
 	RegisterElement("water.v0", &Water{})
+
+	// v1 ground-plane elements add the scene-wide "height" vantage point (see
+	// HeightMode): identical to v0 at the high vantage, widened at ground level. They
+	// keep the v0 stream keys and entity schemas, so old seeds and old scene files are
+	// unaffected. These are the default pipeline (see config.pipelineElements).
+	RegisterElement("ground.v1", &Ground1{})
+	RegisterElement("cities.v1", &Cities1{})
+	RegisterElement("water.v1", &Water1{})
 }

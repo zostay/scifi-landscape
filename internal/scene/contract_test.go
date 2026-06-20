@@ -139,40 +139,50 @@ func TestSchemaContract(t *testing.T) {
 }
 
 // TestGoldenCoversAllAlgorithms guards the behavioral freeze's completeness: every
-// registered generator and renderer must appear in the default config's pipeline,
+// registered director, generator, and renderer must be selected by some golden case,
 // which the golden suite renders — so no released algorithm can change unnoticed.
 //
-// When a new version is added outside the default pipeline (e.g. sky.v1, while the
-// default stays sky.v0), this fails on purpose: add a golden case whose config
-// selects the new algorithm so its output is frozen, then this passes again.
+// Coverage is the union over all golden cases' configs (the default pipeline plus
+// any case-specific overrides), not just the default config — because the default
+// can only name one algorithm per slot, while both the v0 and v1 ground-plane
+// algorithms stay registered (old configs select v0). When a new version is added
+// that no case selects, this fails on purpose: add a golden case whose config
+// selects it so its output is frozen, then this passes again.
 func TestGoldenCoversAllAlgorithms(t *testing.T) {
-	algos := config.DefaultConfig().Algorithms
-	gens := toSet(algos.Generators)
-	rends := toSet(algos.Renderers)
+	gens := map[string]bool{}
+	rends := map[string]bool{}
+	dirs := map[string]bool{}
+	for _, c := range goldenCases() {
+		cfg := config.DefaultConfig()
+		if c.cfg != nil {
+			cfg = *c.cfg
+		}
+		for _, k := range cfg.Algorithms.Generators {
+			gens[k] = true
+		}
+		for _, k := range cfg.Algorithms.Renderers {
+			rends[k] = true
+		}
+		for _, k := range cfg.Algorithms.Directors {
+			dirs[k] = true
+		}
+	}
 
 	for _, k := range GeneratorKeys() {
 		if !gens[k] {
-			t.Errorf("generator %q is registered but not in the default (golden-covered) pipeline; the golden suite does not freeze its behavior. Add a golden case whose config selects it before release.", k)
+			t.Errorf("generator %q is registered but no golden case selects it; the golden suite does not freeze its behavior. Add a golden case whose config selects it before release.", k)
 		}
 	}
 	for _, k := range RendererKeys() {
 		if !rends[k] {
-			t.Errorf("renderer %q is registered but not in the default (golden-covered) pipeline; add a golden case whose config selects it before release.", k)
+			t.Errorf("renderer %q is registered but no golden case selects it; add a golden case whose config selects it before release.", k)
 		}
 	}
-	for _, d := range algos.Directors {
-		if _, ok := DirectorByName(d); !ok {
-			t.Errorf("default config director %q is not registered", d)
+	for _, k := range DirectorKeys() {
+		if !dirs[k] {
+			t.Errorf("director %q is registered but no golden case selects it; add a golden case whose config selects it before release.", k)
 		}
 	}
-}
-
-func toSet(ss []string) map[string]bool {
-	m := make(map[string]bool, len(ss))
-	for _, s := range ss {
-		m[s] = true
-	}
-	return m
 }
 
 func readContract(t *testing.T) []string {

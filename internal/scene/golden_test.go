@@ -37,6 +37,11 @@ type goldenCase struct {
 	seed int64
 	w, h int
 	time string // time-of-day override; "" means derive from the seed
+	// cfg, when non-nil, overrides the configuration (and thus the director and the
+	// generator/renderer pipeline) for this case. It lets the matrix freeze pipelines
+	// other than the default — the now-non-default v0 ground-plane algorithms, and the
+	// v1 algorithms forced into their low/high branches. nil means the default config.
+	cfg *config.Config
 }
 
 // goldenCases is chosen to exercise the breadth of the pipeline: a spread of
@@ -70,7 +75,48 @@ func goldenCases() []goldenCase {
 			seed: s, w: 1280, h: 720,
 		})
 	}
+	// The default pipeline now selects the v1 ground-plane algorithms with a
+	// seed-rolled height. These extra cases freeze the algorithms the default matrix
+	// above does not pin on its own:
+	//   - the now-non-default v0 ground/cities/water (old configs and scene files
+	//     still select them, so their output must stay frozen), and
+	//   - the v1 algorithms forced into each height branch (low and high), so both
+	//     branches are covered regardless of which the default seeds happen to roll.
+	v0 := allV0Config()
+	low := forcedHeightConfig(1.0)  // every scene low
+	high := forcedHeightConfig(0.0) // every scene high (must equal v0 output)
+	for _, s := range []int64{1, 7, 42, 256} {
+		cs = append(cs,
+			goldenCase{name: fmt.Sprintf("v0_s%d_480x270", s), seed: s, w: 480, h: 270, cfg: &v0},
+			goldenCase{name: fmt.Sprintf("low_s%d_480x270", s), seed: s, w: 480, h: 270, cfg: &low},
+			goldenCase{name: fmt.Sprintf("high_s%d_480x270", s), seed: s, w: 480, h: 270, cfg: &high},
+		)
+	}
 	return cs
+}
+
+// allV0Config returns the default config with its pipeline pinned to the original
+// v0 director and v0 ground-plane algorithms, so the matrix freezes the algorithms
+// old configs/scene files still select.
+func allV0Config() config.Config {
+	c := config.DefaultConfig()
+	c.Algorithms.Directors = []string{"scene.v0"}
+	v0 := []string{
+		"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
+		"clouds.v0", "mountains.v0", "ground.v0", "cities.v0", "water.v0",
+	}
+	c.Algorithms.Generators = append([]string(nil), v0...)
+	c.Algorithms.Renderers = append([]string(nil), v0...)
+	return c
+}
+
+// forcedHeightConfig returns the default (v1) config with the height roll pinned:
+// lowChance 1.0 forces every scene to the low vantage, 0.0 forces high. It lets the
+// matrix freeze both v1 branches deterministically.
+func forcedHeightConfig(lowChance float64) config.Config {
+	c := config.DefaultConfig()
+	c.Perspective.LowChance = lowChance
+	return c
 }
 
 // renderHash builds a scene headlessly (instant, no animation delay) and returns
@@ -79,7 +125,18 @@ func goldenCases() []goldenCase {
 func renderHash(t *testing.T, c goldenCase) string {
 	t.Helper()
 	cfg := config.DefaultConfig()
-	globals := DefaultDirector().Direct(cfg, c.seed, c.time, c.w, c.h)
+	if c.cfg != nil {
+		cfg = *c.cfg
+	}
+	// Resolve the director named by the config (the v0 cases select scene.v0),
+	// falling back to the default, mirroring how the binaries build globals.
+	dir := DefaultDirector()
+	if dirs := cfg.Algorithms.Directors; len(dirs) > 0 {
+		if d, ok := DirectorByName(dirs[0]); ok {
+			dir = d
+		}
+	}
+	globals := dir.Direct(cfg, c.seed, c.time, c.w, c.h)
 	cv := canvas.New(c.w, c.h)
 	sc, err := New(globals, cfg.Algorithms)
 	if err != nil {

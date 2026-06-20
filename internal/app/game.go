@@ -164,7 +164,7 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		state = "done"
 	}
 	lines := []string{
-		fmt.Sprintf("seed %d   %s   horizon %.0f%%", st.Seed, st.Time, st.Horizon*100),
+		fmt.Sprintf("seed %d   %s   %s   horizon %.0f%%", st.Seed, st.Time, st.Height, st.Horizon*100),
 	}
 	if st.Time != scene.Midday {
 		lines = append(lines, fmt.Sprintf("stars: density %.2fx   twinkle %.0f°", st.StarDensity, st.TwinkleAngle))

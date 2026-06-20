@@ -84,6 +84,21 @@ func (wt *Water) RenderList(c *Context, list SceneList) error {
 	if err != nil {
 		return err
 	}
+	// The v0 water uses a linear depth ramp (depthPow 1) and the plain wave
+	// amplitude (waveScale 1). water.v1 reuses renderOcean with a sub-linear depth
+	// warp and a larger wave scale for its low (ground-level) mode.
+	return renderOcean(c, oc, 1.0, 1.0)
+}
+
+// renderOcean mirrors the scene above the horizon down into a rippled, island-
+// dotted sea. depthPow warps the foreground depth used for the wave/tint/darken
+// ramps: 1.0 is the linear v0 ramp; a value below 1 spends more of the visible
+// range near the horizon (a wider, calmer mirror band easing to choppier
+// foreground), so the water reads as stretching further toward the viewer. waveScale
+// multiplies the ripple amplitude. It is the shared drawing core behind both the v0
+// water (depthPow 1, waveScale 1) and water.v1's low mode, and consumes no
+// randomness.
+func renderOcean(c *Context, oc *ocean, depthPow, waveScale float64) error {
 	w, h := c.W, c.H
 	horizon, groundH := oc.horizon, oc.groundH
 	wcol := oc.color
@@ -103,9 +118,13 @@ func (wt *Water) RenderList(c *Context, list SceneList) error {
 		c.Canvas.Draw(func(img *image.RGBA) {
 			for y := y0; y < y1; y++ {
 				d := float64(y-horizon) / float64(groundH) // 0 at the horizon, 1 at the bottom
-				amp := waterWaveMin + (waveMax-waterWaveMin)*d
-				tint := waterTintHorizon + (waterTintForeground-waterTintHorizon)*d
-				dark := 1 - waterDarkForeground*d
+				dw := d
+				if depthPow != 1 {
+					dw = math.Pow(d, depthPow)
+				}
+				amp := (waterWaveMin + (waveMax-waterWaveMin)*dw) * waveScale
+				tint := waterTintHorizon + (waterTintForeground-waterTintHorizon)*dw
+				dark := 1 - waterDarkForeground*dw
 				for x := range w {
 					e := oc.elev(x, y)
 					if e > oc.seaLevel {
