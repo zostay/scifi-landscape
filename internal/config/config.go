@@ -125,9 +125,30 @@ type LightingConfig struct {
 //     is steepened by (1 + HorizonGain*pitch), where pitch rises from 0 when the
 //     horizon sits at HorizonPivot (eye level) toward 1 as the horizon drops down-
 //     screen (more sky, i.e. the viewer is looking up).
-//   - WaterDepthPow / WaterWaveScale — the ocean's low-mode depth warp (a power < 1
-//     spends more of the visible range near the horizon, a wider mirror band easing
-//     to choppier foreground) and an extra multiplier on the wave amplitude.
+//   - ShorePerspHigh / ShorePerspLow / ShoreBias — how strongly the shorelines are
+//     bent by perspective: the land/water boundary is sampled in world space so a
+//     coast recedes toward the central vanishing point. The strength (0 = the flat,
+//     screen-space v0 shape; 1 = full perspective) is ShorePerspHigh in high mode and
+//     ShorePerspLow in low; ShoreBias sets how sharply the shore world-depth recedes
+//     (smaller = the far shore crushes harder). Both modes get it (more in low), and
+//     the cities use the same boundary so buildings stay on the same land the water
+//     leaves dry.
+//   - ShoreBandHigh / ShoreBandLow / IslandLevelHigh / IslandLevelLow — where and how
+//     much land appears. The band is how far from the horizon land may appear, as a
+//     fraction of the foreground depth (0 at the horizon, 1 at the viewer); the level
+//     is the absolute land-noise threshold in [0,1] (the noise is ~0.5 mean), so a
+//     higher level leaves fewer, more isolated islands and always keeps the sea mostly
+//     open water — it is independent of the scene's random sea level, so an ocean never
+//     flips to solid land. The two together set the elevated-vs-ground contrast: high
+//     mode spreads more islands down the view (larger band, lower level — "seeing
+//     more"), low mode keeps a few distant islands in a thin strip at the horizon
+//     (small band, higher level — "on the ground, seeing less"). The v0 coast wall is
+//     dropped, so land is always isolated islands, never sprawling coast.
+//   - WaveNearHigh / WaveNearLow / WaveOctaves — the swell. The wave amplitude grows
+//     toward the viewer up to WaveNear× the base near the bottom (WaveNearHigh in high
+//     mode, WaveNearLow in low — so near waves get much larger), and the ripple is
+//     summed over WaveOctaves scales (long swells carrying short chop) sampled in
+//     perspective world space, like the ground's layered noise.
 //   - CityBandCap — caps the city's depth band (as a fraction of the ground height)
 //     in low mode, so the city stays pinned far-off near the horizon instead of
 //     marching down into the stretched foreground.
@@ -142,8 +163,18 @@ type PerspectiveConfig struct {
 	HorizonPivot     float64 `yaml:"horizonPivot"`
 	HorizonGain      float64 `yaml:"horizonGain"`
 
-	WaterDepthPow  float64 `yaml:"waterDepthPow"`
-	WaterWaveScale float64 `yaml:"waterWaveScale"`
+	ShorePerspHigh  float64 `yaml:"shorePerspHigh"`
+	ShorePerspLow   float64 `yaml:"shorePerspLow"`
+	ShoreBias       float64 `yaml:"shoreBias"`
+	ShoreBandHigh   float64 `yaml:"shoreBandHigh"`
+	ShoreBandLow    float64 `yaml:"shoreBandLow"`
+	IslandLevelHigh float64 `yaml:"islandLevelHigh"`
+	IslandLevelLow  float64 `yaml:"islandLevelLow"`
+	LandDistHigh    float64 `yaml:"landDistHigh"`
+	LandDistLow     float64 `yaml:"landDistLow"`
+	WaveNearHigh    float64 `yaml:"waveNearHigh"`
+	WaveNearLow     float64 `yaml:"waveNearLow"`
+	WaveOctaves     int     `yaml:"waveOctaves"`
 
 	CityBandCap float64 `yaml:"cityBandCap"`
 }
@@ -188,9 +219,19 @@ func DefaultConfig() Config {
 			GroundContrast:   1.4,   // texture light/dark strength for the near dirt
 			HorizonPivot:     0.50,  // horizon at vertical middle reads as eye level
 			HorizonGain:      1.0,   // looking up (low horizon) steepens the depth falloff
-			WaterDepthPow:    0.5,   // < 1: more of the visible range hugs the horizon (wider mirror band)
-			WaterWaveScale:   2.0,   // choppier toward the (now nearer) viewer
-			CityBandCap:      0.05,  // keep the city pinned in a thin far-off strip
+			ShorePerspHigh:   0.2,   // gentle shore perspective: the elevated view is more top-down, islands spread down
+			ShorePerspLow:    1.0,   // full shore perspective at ground level
+			ShoreBias:        0.18,  // shore world-depth recession sharpness
+			ShoreBandHigh:    0.7,   // high (elevated, seeing more): islands spread well down the view
+			ShoreBandLow:     0.12,  // low (on the ground, seeing less): land only in a thin strip at the horizon
+			IslandLevelHigh:  0.62,  // high: lower threshold → more islands, but the sea stays mostly open
+			IslandLevelLow:   0.72,  // low: higher threshold → a few distant islands
+			LandDistHigh:     1.0,   // high (elevated): the coast sits where the map places it
+			LandDistLow:      3.0,   // low (on the ground): the coast is pushed toward the horizon, open water in front
+			WaveNearHigh:     3.0,   // near waves ~3× the base in high mode
+			WaveNearLow:      8.0,   // near waves much larger at ground level
+			WaveOctaves:      4,     // long swells carrying shorter chop
+			CityBandCap:      0.02,  // keep the city pinned almost on the horizon itself
 		},
 	}
 }

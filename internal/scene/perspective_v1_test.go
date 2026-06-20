@@ -37,16 +37,31 @@ func buildHash(t *testing.T, cfg config.Config, seed int64, w, h int) [32]byte {
 // vs none, varied horizons).
 var perspectiveSeeds = []int64{1, 2, 3, 7, 11, 42, 100, 256, 1024, -5}
 
-// TestPerspectiveHighMatchesV0 is the freeze guard for the new pipeline: the v1
-// ground-plane algorithms in their high vantage must be byte-identical to the v0
-// algorithms. This is what lets the v1 pipeline be the default without moving any
-// high-rolling seed. It compares a forced-high v1 build against the all-v0 build.
-func TestPerspectiveHighMatchesV0(t *testing.T) {
-	v0 := allV0Config()
-	high := forcedHeightConfig(0.0)
+// groundPipeline returns a config whose pipeline is the shared elements plus the
+// given ground algorithm and director, and no cities or water — so it isolates the
+// ground's output (the ocean/cities are excluded). It is used to prove ground.v1's
+// high vantage is byte-identical to ground.v0.
+func groundPipeline(director, ground string) config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Perspective.LowChance = 0.0 // force high where the director is scene.v1
+	cfg.Algorithms.Directors = []string{director}
+	gens := []string{"sky.v0", "stars.v0", "systemstars.v0", "planets.v0", "clouds.v0", "mountains.v0", ground}
+	cfg.Algorithms.Generators = gens
+	cfg.Algorithms.Renderers = append([]string(nil), gens...)
+	return cfg
+}
+
+// TestGroundHighMatchesV0 is the freeze guard for the ground element: ground.v1 in
+// its high vantage must be byte-identical to ground.v0, so a high-rolling seed's
+// ground is unchanged. (cities.v1 and water.v1 deliberately differ from v0 in high
+// too — they gain perspective shorelines and waves — so they are excluded here and
+// frozen by their own golden cases instead.)
+func TestGroundHighMatchesV0(t *testing.T) {
+	v0 := groundPipeline("scene.v0", "ground.v0")
+	v1 := groundPipeline("scene.v1", "ground.v1")
 	for _, s := range perspectiveSeeds {
-		if buildHash(t, high, s, 480, 270) != buildHash(t, v0, s, 480, 270) {
-			t.Errorf("seed %d: forced-high v1 pipeline differs from v0 — high mode must be byte-identical", s)
+		if buildHash(t, v1, s, 480, 270) != buildHash(t, v0, s, 480, 270) {
+			t.Errorf("seed %d: ground.v1 high differs from ground.v0 — high mode must be byte-identical", s)
 		}
 	}
 }
@@ -89,13 +104,18 @@ func TestSceneV1DerivesHeight(t *testing.T) {
 		if gl.Perspective.GroundNearCell <= 0 || gl.Perspective.GroundGamma <= 0 {
 			t.Errorf("seed %d: low mode did not resolve the ground perspective: %+v", s, gl.Perspective)
 		}
+		// Low mode uses the strong shore perspective; high mode the mild one. Both are
+		// resolved (water gets perspective at both vantages).
+		if gl.Perspective.ShorePersp != lowCfg.Perspective.ShorePerspLow {
+			t.Errorf("seed %d: low ShorePersp = %v, want %v", s, gl.Perspective.ShorePersp, lowCfg.Perspective.ShorePerspLow)
+		}
 
 		gh := d.Direct(highCfg, s, "", 480, 270)
 		if gh.Height != High {
 			t.Errorf("seed %d: lowChance=0 gave Height %v, want high", s, gh.Height)
 		}
-		if gh.Perspective != (Perspective{}) {
-			t.Errorf("seed %d: high mode should leave perspective zero, got %+v", s, gh.Perspective)
+		if gh.Perspective.ShorePersp != highCfg.Perspective.ShorePerspHigh {
+			t.Errorf("seed %d: high ShorePersp = %v, want %v", s, gh.Perspective.ShorePersp, highCfg.Perspective.ShorePerspHigh)
 		}
 
 		// The Settings (and gradients) must be exactly what v0 derives, regardless of

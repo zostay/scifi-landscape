@@ -200,8 +200,14 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.Perspective = g.Perspective
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
-	// to land while Water still reflects the city skyline.
+	// to land while Water still reflects the city skyline. When a v1 director resolved
+	// a shore perspective, apply it here too so the boundary the cities consult (via
+	// LandAt) matches the one water.v1 will draw — buildings stay on the land the water
+	// leaves dry. With no perspective (v0) this is the original screen-space model.
 	sctx.Ocean = buildOcean(deriveRng(seed, "water"), g.Settings, h)
+	if g.Perspective.ShorePersp > 0 {
+		sctx.Ocean = sctx.Ocean.withPerspective(g.Perspective, w)
+	}
 	sctx.LandAt = sctx.Ocean.LandAt
 	return sctx
 }

@@ -84,21 +84,6 @@ func (wt *Water) RenderList(c *Context, list SceneList) error {
 	if err != nil {
 		return err
 	}
-	// The v0 water uses a linear depth ramp (depthPow 1) and the plain wave
-	// amplitude (waveScale 1). water.v1 reuses renderOcean with a sub-linear depth
-	// warp and a larger wave scale for its low (ground-level) mode.
-	return renderOcean(c, oc, 1.0, 1.0)
-}
-
-// renderOcean mirrors the scene above the horizon down into a rippled, island-
-// dotted sea. depthPow warps the foreground depth used for the wave/tint/darken
-// ramps: 1.0 is the linear v0 ramp; a value below 1 spends more of the visible
-// range near the horizon (a wider, calmer mirror band easing to choppier
-// foreground), so the water reads as stretching further toward the viewer. waveScale
-// multiplies the ripple amplitude. It is the shared drawing core behind both the v0
-// water (depthPow 1, waveScale 1) and water.v1's low mode, and consumes no
-// randomness.
-func renderOcean(c *Context, oc *ocean, depthPow, waveScale float64) error {
 	w, h := c.W, c.H
 	horizon, groundH := oc.horizon, oc.groundH
 	wcol := oc.color
@@ -118,13 +103,9 @@ func renderOcean(c *Context, oc *ocean, depthPow, waveScale float64) error {
 		c.Canvas.Draw(func(img *image.RGBA) {
 			for y := y0; y < y1; y++ {
 				d := float64(y-horizon) / float64(groundH) // 0 at the horizon, 1 at the bottom
-				dw := d
-				if depthPow != 1 {
-					dw = math.Pow(d, depthPow)
-				}
-				amp := (waterWaveMin + (waveMax-waterWaveMin)*dw) * waveScale
-				tint := waterTintHorizon + (waterTintForeground-waterTintHorizon)*dw
-				dark := 1 - waterDarkForeground*dw
+				amp := waterWaveMin + (waveMax-waterWaveMin)*d
+				tint := waterTintHorizon + (waterTintForeground-waterTintHorizon)*d
+				dark := 1 - waterDarkForeground*d
 				for x := range w {
 					e := oc.elev(x, y)
 					if e > oc.seaLevel {
@@ -186,6 +167,81 @@ type ocean struct {
 	landSeed int
 	seaLevel float64
 	coast    float64
+
+	// Perspective shore mapping (set by the v1 path; zero for v0 → screen-space shape).
+	// When perspStrength > 0 the land/water boundary is sampled in world space — both
+	// the lateral and depth noise coordinates bent by perspective from perspCenterX —
+	// so a coast recedes toward the central vanishing point. perspStrength blends from
+	// 0 (the flat v0 shape) to 1 (full perspective); perspBias sets the world-depth
+	// recession sharpness. Both the cities (via LandAt) and water.v1 set these from the
+	// same globals, so the boundary they see agrees.
+	perspStrength float64
+	perspBias     float64
+	perspCenterX  float64
+	// shoreBand confines land to within this depth fraction of the horizon (0 at the
+	// horizon, 1 at the viewer): the v1 sea is open water with distant islands rather
+	// than foreground land stretched into puddles. Zero (v0) means no confinement.
+	shoreBand float64
+	// shore is the v1 geometric coastline map (set in the v1 path); useShore selects it
+	// over the v0 noise model in elev. shoreDist scales world distance (>1 pushes land
+	// toward the horizon — the ground-level "seeing less" look).
+	shore     shoreModel
+	useShore  bool
+	shoreDist float64
+}
+
+// withPerspective returns a shallow copy of the ocean configured with the perspective
+// shore mapping resolved from p and the scene width w. strength<=0 leaves the ocean in
+// the flat v0 shape. Both newContext (for the shared LandAt the cities read) and
+// water.v1 call this with the same globals so their land/water boundary matches.
+func (o *ocean) withPerspective(p Perspective, w int) *ocean {
+	if o == nil {
+		return nil
+	}
+	c := *o
+	c.perspStrength = clamp01(p.ShorePersp)
+	c.perspBias = p.ShoreBias
+	if c.perspBias <= 0 {
+		c.perspBias = 0.2
+	}
+	c.perspCenterX = float64(w) / 2
+	c.shoreBand = p.ShoreBand
+	// Build the geometric coastline map (deterministic from the land seed), used by the
+	// v1 elev in place of the noise model. shoreDist pushes land toward the horizon at
+	// the ground-level vantage.
+	c.shore = buildShoreModel(o.landSeed)
+	c.useShore = true
+	c.shoreDist = p.LandDist
+	if c.shoreDist <= 0 {
+		c.shoreDist = 1.0
+	}
+	return &c
+}
+
+// landCoords maps a below-horizon screen point to the (u, v) coordinates at which the
+// land/shore noise is sampled. With no perspective (perspStrength == 0) it is the v0
+// screen-space mapping, byte-identical to the original. With perspective it bends both
+// axes by a world depth that grows toward the horizon, so shore contours converge to
+// the central vanishing point (perspCenterX): near coast spreads wide, far coast
+// compresses — the perspective "angle".
+func (o *ocean) landCoords(x, y int) (u, v float64) {
+	d := float64(y-o.horizon) / float64(o.groundH)
+	if o.perspStrength <= 0 {
+		return float64(x) * islandFreqX, d * islandFreqY // v0, unchanged
+	}
+	s := o.perspStrength
+	b := o.perspBias
+	// World depth Z: 1 at the near (bottom) edge, growing toward the horizon; blended
+	// toward 1 by the strength so high mode bends only mildly.
+	z := (1 + b) / (d + b)
+	zEff := 1 + s*(z-1)
+	u = (float64(x) - o.perspCenterX) * islandFreqX * zEff
+	// Vertical: blend the linear v0 depth with the integral of Z (compressed toward
+	// the horizon), normalized so the near edge still lands at islandFreqY.
+	aEnd := (1 + b) * math.Log((1+b)/b)
+	a := (1 + b) * math.Log((d+b)/b)
+	v = islandFreqY * ((1-s)*d + s*a/aEnd)
+	return u, v
 }
 
 // buildOcean decides whether a scene has an ocean and, if so, its color, waves,
@@ -216,9 +272,29 @@ func buildOcean(rng *rand.Rand, s Settings, h int) *ocean {
 // elev is the land elevation at a below-horizon point: fractal noise plus a bias
 // that rises toward the horizon, so distant coastline is common while the near
 // water stays open with scattered islands.
+// v1 perspective land model: islands are confined to a near-horizon band and kept to
+// the noise peaks, so the perspective sea reads as open water with distant islands
+// rather than foreground land stretched into puddles.
+// shoreSDFScale maps the coastline signed-distance field (in world units) into the
+// elevation range around seaLevel, so the renderer's beach/foam bands hug the shore.
+const shoreSDFScale = 0.35
+
 func (o *ocean) elev(x, y int) float64 {
 	d := float64(y-o.horizon) / float64(o.groundH)
-	return gfx.FBM(float64(x)*islandFreqX, d*islandFreqY, o.landSeed, islandOctaves) + o.coast*(1-d)
+	if !o.useShore {
+		u, v := o.landCoords(x, y)
+		return gfx.FBM(u, v, o.landSeed, islandOctaves) + o.coast*(1-d) // v0, unchanged
+	}
+	// v1: drape the geometric coastline map through the perspective projection. A point
+	// at screen depth d sits at world distance Z (0 at the viewer, growing toward the
+	// horizon) and lateral X (scaled by distance, so equal world widths converge toward
+	// the central vanishing point). The shore map's signed field gives land/water and
+	// the distance to shore for the beach/foam bands. Both the cities (via LandAt) and
+	// water.v1 read this, so they agree.
+	dd := clamp(d, 0.02, 1)
+	z := (1 - dd) / dd / o.shoreDist
+	xw := (float64(x) - o.perspCenterX) / o.perspCenterX / dd
+	return o.seaLevel + o.shore.landSDF(xw, z)*shoreSDFScale
 }
 
 // LandAt reports whether (x, y) is land. Above the horizon, and everywhere when

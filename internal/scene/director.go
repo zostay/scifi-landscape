@@ -74,7 +74,19 @@ type Perspective struct {
 	GroundContrast   float64 `yaml:"groundContrast"`
 	WaterDepthPow    float64 `yaml:"waterDepthPow"`
 	WaterWaveScale   float64 `yaml:"waterWaveScale"`
-	CityBandFrac     float64 `yaml:"cityBandFrac"`
+	// ShorePersp (0 = flat v0 shape, 1 = full perspective) and ShoreBias bend the
+	// land/water boundary by perspective; the cities read the same boundary so
+	// buildings stay on the land the water leaves dry. WaveNear is the near-edge wave
+	// amplitude multiplier and WaveOctaves the swell octave count. These are set in
+	// both height modes (more strongly in low), so water.v1 always renders with them.
+	ShorePersp   float64 `yaml:"shorePersp"`
+	ShoreBias    float64 `yaml:"shoreBias"`
+	ShoreBand    float64 `yaml:"shoreBand"`
+	IslandLevel  float64 `yaml:"islandLevel"`
+	LandDist     float64 `yaml:"landDist"`
+	WaveNear     float64 `yaml:"waveNear"`
+	WaveOctaves  int     `yaml:"waveOctaves"`
+	CityBandFrac float64 `yaml:"cityBandFrac"`
 }
 
 // Marshal serializes the globals to YAML for a scene file's globals.yaml. Globals
@@ -198,22 +210,32 @@ func (sceneDirectorV1) Name() string { return "scene.v1" }
 func (d sceneDirectorV1) Direct(cfg config.Config, seed int64, timeOverride string, w, h int) Globals {
 	g := d.sceneDirectorV0.Direct(cfg, seed, timeOverride, w, h)
 	// Roll the vantage point on its own stream so existing globals are unaffected.
+	g.Height = High
 	if deriveRng(seed, "perspective").Float64() < cfg.Perspective.LowChance {
 		g.Height = Low
-		g.Perspective = resolvePerspective(cfg.Perspective, g.Settings.Horizon)
 	}
+	// The perspective is resolved for both modes: the ground/city transforms apply
+	// only at the low vantage, but the water shore/wave perspective applies in both
+	// (more strongly in low), so water.v1 always has its parameters.
+	g.Perspective = resolvePerspective(cfg.Perspective, g.Settings.Horizon, g.Height)
 	return g
 }
 
-// resolvePerspective turns the perspective config and the scene's horizon into the
-// concrete low-mode parameters the v1 renderers read. The ground stretch is
-// amplified by how far the horizon sits below eye level (HorizonPivot): a horizon
-// low on screen (lots of sky) reads as "looking up", which intensifies the
-// foreshortening. The water and city parameters pass through unchanged.
-func resolvePerspective(pc config.PerspectiveConfig, horizon float64) Perspective {
+// resolvePerspective turns the perspective config, the scene's horizon, and the
+// rolled height into the concrete parameters the v1 renderers read. The ground
+// stretch is amplified by how far the horizon sits below eye level (HorizonPivot): a
+// horizon low on screen (lots of sky) reads as "looking up", which intensifies the
+// foreshortening. The shore-perspective strength and near-wave scale are chosen by
+// mode — mild in high, strong in low — so the ocean gets perspective shorelines and
+// larger near waves at both vantages.
+func resolvePerspective(pc config.PerspectiveConfig, horizon float64, height HeightMode) Perspective {
 	pitch := 0.0
 	if pc.HorizonPivot > 0 {
 		pitch = clamp01((pc.HorizonPivot - horizon) / pc.HorizonPivot)
+	}
+	shore, waveNear, band, level, dist := pc.ShorePerspHigh, pc.WaveNearHigh, pc.ShoreBandHigh, pc.IslandLevelHigh, pc.LandDistHigh
+	if height == Low {
+		shore, waveNear, band, level, dist = pc.ShorePerspLow, pc.WaveNearLow, pc.ShoreBandLow, pc.IslandLevelLow, pc.LandDistLow
 	}
 	return Perspective{
 		GroundNearCell:   pc.GroundNearCell,
@@ -222,8 +244,13 @@ func resolvePerspective(pc config.PerspectiveConfig, horizon float64) Perspectiv
 		GroundBias:       pc.GroundBias,
 		GroundGamma:      1 + pc.HorizonGain*pitch, // looking up steepens the depth falloff
 		GroundContrast:   pc.GroundContrast,
-		WaterDepthPow:    pc.WaterDepthPow,
-		WaterWaveScale:   pc.WaterWaveScale,
+		ShorePersp:       shore,
+		ShoreBias:        pc.ShoreBias,
+		ShoreBand:        band,
+		IslandLevel:      level,
+		LandDist:         dist,
+		WaveNear:         waveNear,
+		WaveOctaves:      pc.WaveOctaves,
 		CityBandFrac:     pc.CityBandCap,
 	}
 }
