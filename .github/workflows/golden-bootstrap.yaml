@@ -8,11 +8,6 @@ name: Regenerate golden baselines
 # internal/scene/testdata/. This never writes to the repo itself.
 on:
   workflow_dispatch:
-  # TEMPORARY (bootstrap only): run on pushes to ci-verify so the amd64 baseline
-  # can be generated before workflow_dispatch is available on the default branch.
-  # Removed once the baselines are committed.
-  push:
-    branches: [ci-verify]
 
 permissions:
   contents: read
