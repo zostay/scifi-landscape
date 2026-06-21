@@ -60,11 +60,12 @@ type Globals struct {
 // nearest ground), GroundBias (horizon recession sharpness), and GroundGamma (the
 // depth-falloff exponent, already steepened for how far the horizon sits from eye
 // level) define the base terrain's perspective projection. GroundContrast scales the
-// texture's light/dark. WaterDepthPow and WaterWaveScale warp the ocean's depth ramp
-// and scale its wave amplitude. CityBandFrac caps the city's depth band (as a fraction
-// of the ground height) so the city stays pinned far-off near the horizon. All zero in
-// High mode. The texture is two layers (see PerspectiveConfig): GroundNearCell-pixel
-// macro blobs plus GroundDetailCell-pixel detail grain at GroundDetailAmt strength.
+// texture's light/dark. The ocean fields (ShorePersp/ShoreBias/LandDist/WaveNear/
+// WaveOctaves) are documented on their struct fields below. CityBandFrac caps the
+// city's depth band (as a fraction of the ground height) so the city stays pinned
+// far-off near the horizon. The texture is two layers (see PerspectiveConfig):
+// GroundNearCell-pixel macro blobs plus GroundDetailCell-pixel detail grain at
+// GroundDetailAmt strength.
 type Perspective struct {
 	GroundNearCell   float64 `yaml:"groundNearCell"`
 	GroundDetailCell float64 `yaml:"groundDetailCell"`
@@ -72,17 +73,13 @@ type Perspective struct {
 	GroundBias       float64 `yaml:"groundBias"`
 	GroundGamma      float64 `yaml:"groundGamma"`
 	GroundContrast   float64 `yaml:"groundContrast"`
-	WaterDepthPow    float64 `yaml:"waterDepthPow"`
-	WaterWaveScale   float64 `yaml:"waterWaveScale"`
-	// ShorePersp (0 = flat v0 shape, 1 = full perspective) and ShoreBias bend the
-	// land/water boundary by perspective; the cities read the same boundary so
-	// buildings stay on the land the water leaves dry. WaveNear is the near-edge wave
-	// amplitude multiplier and WaveOctaves the swell octave count. These are set in
-	// both height modes (more strongly in low), so water.v1 always renders with them.
+	// ShorePersp and ShoreBias bend the swell by perspective (crests bunching toward the
+	// horizon); LandDist scales how far the geometric coastline sits (larger pushes it
+	// toward the horizon for the ground-level look); WaveNear/WaveOctaves shape the
+	// swell; CityBandFrac pins the city near the horizon. These are set in both height
+	// modes (more strongly in low), so water.v1 and cities.v1 always render with them.
 	ShorePersp   float64 `yaml:"shorePersp"`
 	ShoreBias    float64 `yaml:"shoreBias"`
-	ShoreBand    float64 `yaml:"shoreBand"`
-	IslandLevel  float64 `yaml:"islandLevel"`
 	LandDist     float64 `yaml:"landDist"`
 	WaveNear     float64 `yaml:"waveNear"`
 	WaveOctaves  int     `yaml:"waveOctaves"`
@@ -233,9 +230,9 @@ func resolvePerspective(pc config.PerspectiveConfig, horizon float64, height Hei
 	if pc.HorizonPivot > 0 {
 		pitch = clamp01((pc.HorizonPivot - horizon) / pc.HorizonPivot)
 	}
-	shore, waveNear, band, level, dist := pc.ShorePerspHigh, pc.WaveNearHigh, pc.ShoreBandHigh, pc.IslandLevelHigh, pc.LandDistHigh
+	shore, waveNear, dist := pc.ShorePerspHigh, pc.WaveNearHigh, pc.LandDistHigh
 	if height == Low {
-		shore, waveNear, band, level, dist = pc.ShorePerspLow, pc.WaveNearLow, pc.ShoreBandLow, pc.IslandLevelLow, pc.LandDistLow
+		shore, waveNear, dist = pc.ShorePerspLow, pc.WaveNearLow, pc.LandDistLow
 	}
 	return Perspective{
 		GroundNearCell:   pc.GroundNearCell,
@@ -246,8 +243,6 @@ func resolvePerspective(pc config.PerspectiveConfig, horizon float64, height Hei
 		GroundContrast:   pc.GroundContrast,
 		ShorePersp:       shore,
 		ShoreBias:        pc.ShoreBias,
-		ShoreBand:        band,
-		IslandLevel:      level,
 		LandDist:         dist,
 		WaveNear:         waveNear,
 		WaveOctaves:      pc.WaveOctaves,

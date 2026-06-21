@@ -168,44 +168,34 @@ type ocean struct {
 	seaLevel float64
 	coast    float64
 
-	// Perspective shore mapping (set by the v1 path; zero for v0 → screen-space shape).
-	// When perspStrength > 0 the land/water boundary is sampled in world space — both
-	// the lateral and depth noise coordinates bent by perspective from perspCenterX —
-	// so a coast recedes toward the central vanishing point. perspStrength blends from
-	// 0 (the flat v0 shape) to 1 (full perspective); perspBias sets the world-depth
-	// recession sharpness. Both the cities (via LandAt) and water.v1 set these from the
-	// same globals, so the boundary they see agrees.
-	perspStrength float64
-	perspBias     float64
-	perspCenterX  float64
-	// shoreBand confines land to within this depth fraction of the horizon (0 at the
-	// horizon, 1 at the viewer): the v1 sea is open water with distant islands rather
-	// than foreground land stretched into puddles. Zero (v0) means no confinement.
-	shoreBand float64
-	// shore is the v1 geometric coastline map (set in the v1 path); useShore selects it
-	// over the v0 noise model in elev. shoreDist scales world distance (>1 pushes land
-	// toward the horizon — the ground-level "seeing less" look).
-	shore     shoreModel
-	useShore  bool
-	shoreDist float64
+	// Perspective shore mapping (set by the v1 path; zero for v0). perspBias sets the
+	// wave world-depth recession sharpness and perspCenterX is the vanishing-point
+	// column; both feed the v1 elev/wave perspective. shore is the geometric coastline
+	// map, useShore selects it over the v0 noise model in elev, and shoreDist scales
+	// world distance (>1 pushes land toward the horizon — the "seeing less" look). Both
+	// the cities (via LandAt) and water.v1 build these from the same globals, so the
+	// boundary they see agrees.
+	perspBias    float64
+	perspCenterX float64
+	shore        shoreModel
+	useShore     bool
+	shoreDist    float64
 }
 
-// withPerspective returns a shallow copy of the ocean configured with the perspective
-// shore mapping resolved from p and the scene width w. strength<=0 leaves the ocean in
-// the flat v0 shape. Both newContext (for the shared LandAt the cities read) and
-// water.v1 call this with the same globals so their land/water boundary matches.
+// withPerspective returns a shallow copy of the ocean carrying the v1 geometric
+// coastline map and the perspective parameters resolved from p and the scene width w.
+// Both newContext (for the shared LandAt the cities read) and water.v1 call this with
+// the same globals, so their land/water boundary matches.
 func (o *ocean) withPerspective(p Perspective, w int) *ocean {
 	if o == nil {
 		return nil
 	}
 	c := *o
-	c.perspStrength = clamp01(p.ShorePersp)
 	c.perspBias = p.ShoreBias
 	if c.perspBias <= 0 {
 		c.perspBias = 0.2
 	}
 	c.perspCenterX = float64(w) / 2
-	c.shoreBand = p.ShoreBand
 	// Build the geometric coastline map (deterministic from the land seed), used by the
 	// v1 elev in place of the noise model. shoreDist pushes land toward the horizon at
 	// the ground-level vantage.
@@ -216,32 +206,6 @@ func (o *ocean) withPerspective(p Perspective, w int) *ocean {
 		c.shoreDist = 1.0
 	}
 	return &c
-}
-
-// landCoords maps a below-horizon screen point to the (u, v) coordinates at which the
-// land/shore noise is sampled. With no perspective (perspStrength == 0) it is the v0
-// screen-space mapping, byte-identical to the original. With perspective it bends both
-// axes by a world depth that grows toward the horizon, so shore contours converge to
-// the central vanishing point (perspCenterX): near coast spreads wide, far coast
-// compresses — the perspective "angle".
-func (o *ocean) landCoords(x, y int) (u, v float64) {
-	d := float64(y-o.horizon) / float64(o.groundH)
-	if o.perspStrength <= 0 {
-		return float64(x) * islandFreqX, d * islandFreqY // v0, unchanged
-	}
-	s := o.perspStrength
-	b := o.perspBias
-	// World depth Z: 1 at the near (bottom) edge, growing toward the horizon; blended
-	// toward 1 by the strength so high mode bends only mildly.
-	z := (1 + b) / (d + b)
-	zEff := 1 + s*(z-1)
-	u = (float64(x) - o.perspCenterX) * islandFreqX * zEff
-	// Vertical: blend the linear v0 depth with the integral of Z (compressed toward
-	// the horizon), normalized so the near edge still lands at islandFreqY.
-	aEnd := (1 + b) * math.Log((1+b)/b)
-	a := (1 + b) * math.Log((d+b)/b)
-	v = islandFreqY * ((1-s)*d + s*a/aEnd)
-	return u, v
 }
 
 // buildOcean decides whether a scene has an ocean and, if so, its color, waves,
@@ -269,21 +233,19 @@ func buildOcean(rng *rand.Rand, s Settings, h int) *ocean {
 	return o
 }
 
-// elev is the land elevation at a below-horizon point: fractal noise plus a bias
-// that rises toward the horizon, so distant coastline is common while the near
-// water stays open with scattered islands.
-// v1 perspective land model: islands are confined to a near-horizon band and kept to
-// the noise peaks, so the perspective sea reads as open water with distant islands
-// rather than foreground land stretched into puddles.
 // shoreSDFScale maps the coastline signed-distance field (in world units) into the
 // elevation range around seaLevel, so the renderer's beach/foam bands hug the shore.
 const shoreSDFScale = 0.35
 
+// elev is the land elevation at a below-horizon point. The v0 model (no shore map) is
+// fractal noise plus a bias that rises toward the horizon, so distant coastline is
+// common while the near water stays open with scattered islands. The v1 model drapes
+// the geometric coastline map through the perspective projection (see below).
 func (o *ocean) elev(x, y int) float64 {
 	d := float64(y-o.horizon) / float64(o.groundH)
 	if !o.useShore {
-		u, v := o.landCoords(x, y)
-		return gfx.FBM(u, v, o.landSeed, islandOctaves) + o.coast*(1-d) // v0, unchanged
+		// v0, unchanged: screen-space noise (constant horizontal frequency, linear depth).
+		return gfx.FBM(float64(x)*islandFreqX, d*islandFreqY, o.landSeed, islandOctaves) + o.coast*(1-d)
 	}
 	// v1: drape the geometric coastline map through the perspective projection. A point
 	// at screen depth d sits at world distance Z (0 at the viewer, growing toward the

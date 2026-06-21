@@ -200,12 +200,15 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.Perspective = g.Perspective
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
-	// to land while Water still reflects the city skyline. When a v1 director resolved
-	// a shore perspective, apply it here too so the boundary the cities consult (via
-	// LandAt) matches the one water.v1 will draw — buildings stay on the land the water
-	// leaves dry. With no perspective (v0) this is the original screen-space model.
+	// to land while Water still reflects the city skyline. For a v1 ocean (a v1 director
+	// resolved a land distance) apply the same geometric coastline here, so the boundary
+	// the cities consult (via LandAt) matches the one water.v1 will draw — buildings stay
+	// on the land the water leaves dry. The gate must not depend on ShorePersp (which
+	// only drives the waves and can be configured to 0), or the cities and water.v1 would
+	// disagree. With no v1 perspective (v0) this is the original screen-space model, and
+	// there is no need to build the shore map when the scene has no ocean.
 	sctx.Ocean = buildOcean(deriveRng(seed, "water"), g.Settings, h)
-	if g.Perspective.ShorePersp > 0 {
+	if sctx.Ocean.present && g.Perspective.LandDist > 0 {
 		sctx.Ocean = sctx.Ocean.withPerspective(g.Perspective, w)
 	}
 	sctx.LandAt = sctx.Ocean.LandAt
