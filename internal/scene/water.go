@@ -182,10 +182,19 @@ type ocean struct {
 	shoreDist    float64
 }
 
-// withPerspective returns a shallow copy of the ocean carrying the v1 geometric
-// coastline map and the perspective parameters resolved from p and the scene width w.
-// Both newContext (for the shared LandAt the cities read) and water.v1 call this with
-// the same globals, so their land/water boundary matches.
+// withPerspective returns a shallow copy of the ocean carrying the perspective
+// parameters resolved from p and the scene width w. The wave-perspective fields
+// (perspBias, perspCenterX) are always set, since water.v1 needs them for the swell.
+// The geometric coastline (useShore/shore/shoreDist) is enabled only when a land
+// distance is resolved (LandDist > 0, i.e. a v1 ocean); otherwise the ocean keeps the
+// v0 screen-space noise land.
+//
+// This gate must match the one in Scene.newContext, which builds the shared LandAt the
+// cities read: newContext applies withPerspective only when LandDist > 0, while water.v1
+// applies it unconditionally — so if useShore were set regardless of LandDist, a config
+// resolving LandDist == 0 would give water a geometric coast while the cities kept v0
+// noise land, and buildings would stand in the water. Gating useShore on the same
+// LandDist > 0 keeps both consumers on the same boundary.
 func (o *ocean) withPerspective(p Perspective, w int) *ocean {
 	if o == nil {
 		return nil
@@ -196,14 +205,13 @@ func (o *ocean) withPerspective(p Perspective, w int) *ocean {
 		c.perspBias = 0.2
 	}
 	c.perspCenterX = float64(w) / 2
-	// Build the geometric coastline map (deterministic from the land seed), used by the
-	// v1 elev in place of the noise model. shoreDist pushes land toward the horizon at
-	// the ground-level vantage.
-	c.shore = buildShoreModel(o.landSeed)
-	c.useShore = true
-	c.shoreDist = p.LandDist
-	if c.shoreDist <= 0 {
-		c.shoreDist = 1.0
+	if p.LandDist > 0 {
+		// Build the geometric coastline map (deterministic from the land seed), used by
+		// the v1 elev in place of the noise model. shoreDist pushes land toward the
+		// horizon at the ground-level vantage.
+		c.shore = buildShoreModel(o.landSeed)
+		c.useShore = true
+		c.shoreDist = p.LandDist
 	}
 	return &c
 }
