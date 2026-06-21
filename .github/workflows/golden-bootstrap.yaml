@@ -52,19 +52,22 @@ jobs:
             libasound2-dev \
             pkg-config
 
-      - name: Regenerate this architecture's golden baseline
-        env:
-          UPDATE_GOLDEN: "1"
-          CGO_CFLAGS: -Wno-deprecated-declarations
-        run: go test ./internal/scene -run 'TestGolden$' -count=1
-
+      # Fail fast before regenerating if the runner's architecture is not the one
+      # this matrix entry expects (the regen writes golden.<runner GOARCH>.txt, and
+      # the upload below looks for golden.<matrix.goarch>.txt).
       - name: Sanity check (GOARCH matches the matrix entry)
         run: |
           got="$(go env GOARCH)"
           if [ "$got" != "${{ matrix.goarch }}" ]; then
             echo "runner GOARCH=$got != expected ${{ matrix.goarch }}"; exit 1
           fi
-          echo "GOARCH=$got — wrote internal/scene/testdata/golden.$got.txt"
+          echo "GOARCH=$got"
+
+      - name: Regenerate this architecture's golden baseline
+        env:
+          UPDATE_GOLDEN: "1"
+          CGO_CFLAGS: -Wno-deprecated-declarations
+        run: go test ./internal/scene -run 'TestGolden$' -count=1
 
       - name: Upload golden baseline
         uses: actions/upload-artifact@v4
@@ -72,3 +75,25 @@ jobs:
           name: golden-${{ matrix.name }}
           path: internal/scene/testdata/golden.${{ matrix.goarch }}.txt
           if-no-files-found: error
+
+  # Enforce the invariant the per-arch scheme relies on: arm64 hashes are
+  # OS-independent, so the macOS and Linux arm64 baselines must be byte-identical.
+  # If they ever diverge, GOARCH-only keying is insufficient (the file would need to
+  # be keyed by GOOS+GOARCH) — fail loudly rather than letting a maintainer commit
+  # whichever copy they happened to download.
+  check-arm64:
+    name: arm64 cross-check (macOS == Linux)
+    needs: regen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download arm64 baselines
+        uses: actions/download-artifact@v4
+        with:
+          pattern: golden-*-arm64
+          path: dl
+
+      - name: Diff the macOS and Linux arm64 baselines
+        run: |
+          diff dl/golden-macos-arm64/golden.arm64.txt \
+               dl/golden-linux-arm64/golden.arm64.txt \
+            && echo "arm64 baselines are byte-identical across macOS and Linux"

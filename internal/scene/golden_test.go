@@ -163,7 +163,8 @@ func renderHash(t *testing.T, c goldenCase) string {
 // occasionally rounds to a different 8-bit pixel on, say, linux/amd64 vs darwin/
 // arm64. Each architecture therefore keeps its own baseline (golden.arm64.txt,
 // golden.amd64.txt, …). The two arm64 CI runners (macOS + Linux) verify the same
-// file, which also confirms the hashes are OS-independent within an architecture.
+// file, which also guards against the arm64 hashes diverging between operating
+// systems (they are byte-identical today — see the golden-bootstrap cross-check).
 var goldenFile = "testdata/golden." + runtime.GOARCH + ".txt"
 
 func readGolden(t *testing.T) map[string]string {

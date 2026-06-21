@@ -22,7 +22,10 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on a PR branch, but never cancel a run on master: the
+  # default branch's reproducibility gate should always finish (green or red), not
+  # be cancelled by a rapid follow-up push.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
