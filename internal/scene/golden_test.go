@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -22,14 +23,18 @@ import (
 // directors / generators / renderers refactor proceeds, every step is a
 // mechanical reorganization that must NOT change a single pixel for any seed in
 // this matrix. This test renders that matrix headlessly, hashes the raw RGBA
-// pixels, and compares against testdata/golden.txt.
+// pixels, and compares against the per-architecture baseline
+// testdata/golden.<GOARCH>.txt (see goldenFile — the hashes are bit-exact only
+// within one GOARCH).
 //
-// To (re)generate the goldens after an INTENTIONAL output change, run:
+// To (re)generate THIS machine's baseline after an INTENTIONAL output change, run:
 //
 //	UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden
 //
-// Regenerating is a deliberate act: only do it when you mean to change what a
-// seed looks like, and review the diff to golden.txt as part of that change.
+// To regenerate every architecture's baseline, run the "Regenerate golden
+// baselines" workflow (.github/workflows/golden-bootstrap.yaml) and commit its
+// per-arch artifacts. Regenerating is a deliberate act: only do it when you mean to
+// change what a seed looks like, and review the diff as part of that change.
 
 // goldenCase is one entry in the reproducibility matrix.
 type goldenCase struct {
@@ -152,7 +157,15 @@ func renderHash(t *testing.T, c goldenCase) string {
 	return hex.EncodeToString(sum[:])
 }
 
-const goldenFile = "testdata/golden.txt"
+// goldenFile is the per-architecture golden baseline. The hashed pixels are bit-
+// exact only within one GOARCH: Go's floating-point math differs across
+// architectures (FMA fusion on arm64, per-arch math assembly), so a value
+// occasionally rounds to a different 8-bit pixel on, say, linux/amd64 vs darwin/
+// arm64. Each architecture therefore keeps its own baseline (golden.arm64.txt,
+// golden.amd64.txt, …). The two arm64 CI runners (macOS + Linux) verify the same
+// file, which also guards against the arm64 hashes diverging between operating
+// systems (they are byte-identical today — see the golden-bootstrap cross-check).
+var goldenFile = "testdata/golden." + runtime.GOARCH + ".txt"
 
 func readGolden(t *testing.T) map[string]string {
 	t.Helper()

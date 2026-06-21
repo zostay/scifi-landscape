@@ -20,9 +20,10 @@ Use the **Makefile**, not bare `go`, for anything that touches the GUI. It sets 
 
 ## The one rule that governs everything: seed reproducibility
 
-**A given seed must always produce the exact same scene, forever.** This is the non-negotiable invariant. `internal/scene/golden_test.go` is the safety net: it renders a matrix of seeds/sizes headlessly, hashes the raw RGBA pixels, and compares against `internal/scene/testdata/golden.txt`. **Any refactor must keep this passing** — a golden diff means you changed output.
+**A given seed must always produce the exact same scene, forever.** This is the non-negotiable invariant. `internal/scene/golden_test.go` is the safety net: it renders a matrix of seeds/sizes headlessly, hashes the raw RGBA pixels, and compares against a per-architecture baseline `internal/scene/testdata/golden.<GOARCH>.txt`. **Any refactor must keep this passing** — a golden diff means you changed output.
 
-- `UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden` regenerates `golden.txt`. Pre-release this is for deliberate output changes (review the diff). **Post-release, a diff to an *existing* golden case is a freeze violation** — existing seeds must not move; golden.txt only *grows* (new cases / new versions), never changes existing rows. Never regenerate to "make the test pass."
+- **Per-architecture baselines.** The hashed pixels are bit-exact only *within* one `GOARCH`: Go's float math (FMA fusion on arm64, per-arch `math` assembly) occasionally rounds a value to a different 8-bit pixel, so each arch keeps its own file (`golden.arm64.txt`, `golden.amd64.txt`). CI (`.github/workflows/ci.yaml`) runs `make verify` on a 3-arch matrix — macos-arm64, linux-amd64, linux-arm64 — each against its own baseline (the two arm64 runners share `golden.arm64.txt`, which also guards against the arm64 hashes diverging across OSes).
+- `UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden` regenerates **only the current machine's** baseline. To regenerate every architecture (after a deliberate output change), run the **`Regenerate golden baselines`** workflow (`.github/workflows/golden-bootstrap.yaml`, `workflow_dispatch`), download its per-arch artifacts, and commit them. Pre-release this is for deliberate output changes (review the diff). **Post-release, a diff to an *existing* golden case is a freeze violation** — existing seeds must not move; the baselines only *grow* (new cases / new versions), never change existing rows. Never regenerate to "make the test pass."
 
 ### The two contract gates (`make verify` runs both)
 
@@ -44,7 +45,7 @@ When a gate fails, the fix is a **new version** (`*.v1`, `…V1`), never editing
 - **Keep the deterministic core dependency-light.** Anything that could drift across dependency versions can change output; keep serialization (YAML) at the boundary, not inside the algorithms.
 - **Only exception:** fixing a crash / security / severe-perf bug — and even then prefer a fix that leaves normal-case output unchanged.
 
-The golden suite is the arbiter: if bumping a version (or any edit) shows an *unintended* `golden.txt` diff, you broke a freeze rule.
+The golden suite is the arbiter: if bumping a version (or any edit) shows an *unintended* diff in a per-arch golden baseline, you broke a freeze rule.
 
 ## Architecture
 

@@ -1,0 +1,74 @@
+name: CI
+
+# Run the project's change-contract gate on every push to master and on every
+# pull request. `make verify` builds, vets, checks gofmt, and runs the full test
+# suite — which includes the reproducibility golden (the behavioral freeze) and
+# the additive-only schema contract. A red check here means a seed's output moved
+# or a released serialized field changed.
+#
+# The golden pixel hashes are bit-exact only within one GOARCH (Go's float math —
+# FMA fusion, per-arch assembly — differs across architectures), so each arch has
+# its own baseline (internal/scene/testdata/golden.<GOARCH>.txt). The matrix runs
+# every supported architecture against its own baseline. The two arm64 runners
+# (macOS + Linux) share golden.arm64.txt, which also confirms the hashes are
+# OS-independent within an architecture.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel superseded runs on a PR branch, but never cancel a run on master: the
+  # default branch's reproducibility gate should always finish (green or red), not
+  # be cancelled by a rapid follow-up push.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: verify (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-latest
+          - name: linux-amd64
+            runner: ubuntu-latest
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The windowed app links cgo against the system OpenGL/X11/ALSA libraries
+      # (ebiten), so `go build ./...` needs their dev headers on Linux. macOS links
+      # the platform frameworks and needs no extra packages. CI never opens a
+      # window — the golden suite renders headlessly to an in-memory canvas.
+      - name: Install ebiten build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxxf86vm-dev \
+            libasound2-dev \
+            pkg-config
+
+      # build + vet + gofmt check + `go test ./...` (golden + contract). Same gate
+      # the /release skill runs before tagging.
+      - name: make verify
+        run: make verify
