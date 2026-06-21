@@ -40,6 +40,13 @@ type Config struct {
 	Twinkle     TwinkleConfig  `yaml:"twinkle"`
 	StarDensity DensityConfig  `yaml:"starDensity"`
 	Lighting    LightingConfig `yaml:"lighting"`
+
+	// Perspective parameterizes the scene-wide "height" vantage point: how often a
+	// scene is rendered at ground level, and how strongly that widens the ground
+	// plane. It is read by the scene.v1 director (to roll the height global) and by
+	// the v1 ground/cities/water algorithms (to shape the low-mode look). Zero-value
+	// callers (the v0 director) ignore it entirely.
+	Perspective PerspectiveConfig `yaml:"perspective"`
 }
 
 // Algorithms lists the versioned registry keys of the algorithms that build a
@@ -93,13 +100,83 @@ type LightingConfig struct {
 	AmbientPow   float64 `yaml:"ambientPow"`
 }
 
+// PerspectiveConfig parameterizes the scene's vantage point over the ground plane.
+//
+// LowChance is the probability (in [0,1]) that the scene.v1 director rolls the
+// "low" (ground-level) height rather than "high" (the original elevated look). It
+// doubles as a deterministic switch: 1.0 forces every scene low, 0.0 forces high.
+//
+// The remaining fields shape the low-mode look (high mode is byte-identical to the
+// v0 algorithms and ignores them all):
+//
+//   - GroundNearCell / GroundDetailCell / GroundDetailAmt / GroundBias /
+//     GroundContrast / HorizonGain / HorizonPivot — the base terrain's perspective
+//     projection in low mode. The ground is textured as a flat plane seen at a grazing
+//     angle: each row is given a depth that grows hyperbolically toward the horizon
+//     (so the distance shrinks away fast), and the noise is sampled in world space —
+//     both axes scaled by that depth — so the dirt stays isotropic (real blobs, not
+//     streaks) and recedes to a central vanishing point. The texture is two layers:
+//     a macro layer of GroundNearCell-pixel blobs (the large terrain structure, which
+//     carries detail toward the horizon) plus a finer detail layer of
+//     GroundDetailCell-pixel dirt grain at GroundDetailAmt relative strength (crisp up
+//     close, faded out with distance where it would alias). GroundBias sets how sharply
+//     the horizon recedes (smaller = the far field crushes into a thinner band).
+//     GroundContrast multiplies the combined light/dark variation. The depth falloff
+//     is steepened by (1 + HorizonGain*pitch), where pitch rises from 0 when the
+//     horizon sits at HorizonPivot (eye level) toward 1 as the horizon drops down-
+//     screen (more sky, i.e. the viewer is looking up).
+//   - ShorePerspHigh / ShorePerspLow / ShoreBias — how strongly the swell is bent by
+//     perspective: the wave crests bunch into a calm mirror near the horizon and open
+//     into large swells toward the viewer. ShorePerspHigh applies in high mode,
+//     ShorePerspLow in low; ShoreBias sets how sharply the wave world-depth recedes.
+//   - LandDistHigh / LandDistLow — how far the coast sits. The shoreline is a geometric
+//     coastline map (see internal/scene/shoreline.go), not a noise field: a mainland
+//     whose coast is a sweep of long arcs with the odd peninsula, plus lobed islands,
+//     drawn in a top-down world plane and draped through the perspective so straight
+//     coasts converge toward the vanishing point and beaches hug the shore. LandDist
+//     scales world distance: high mode (1.0 — "seeing more") keeps the coast where the
+//     map places it and lets land spread down the view; low mode (larger — "on the
+//     ground, seeing less") pushes the coast toward the horizon for an open-water
+//     foreground. The cities read the same map, so buildings stay on the land the water
+//     leaves dry.
+//   - WaveNearHigh / WaveNearLow / WaveOctaves — the swell. The wave amplitude grows
+//     toward the viewer up to WaveNear× the base near the bottom (WaveNearHigh in high
+//     mode, WaveNearLow in low — so near waves get much larger), and the ripple is
+//     summed over WaveOctaves scales (long swells carrying short chop) sampled in
+//     perspective world space, like the ground's layered noise.
+//   - CityBandCap — caps the city's depth band (as a fraction of the ground height)
+//     in low mode, so the city stays pinned far-off near the horizon instead of
+//     marching down into the stretched foreground.
+type PerspectiveConfig struct {
+	LowChance float64 `yaml:"lowChance"`
+
+	GroundNearCell   float64 `yaml:"groundNearCell"`
+	GroundDetailCell float64 `yaml:"groundDetailCell"`
+	GroundDetailAmt  float64 `yaml:"groundDetailAmt"`
+	GroundBias       float64 `yaml:"groundBias"`
+	GroundContrast   float64 `yaml:"groundContrast"`
+	HorizonPivot     float64 `yaml:"horizonPivot"`
+	HorizonGain      float64 `yaml:"horizonGain"`
+
+	ShorePerspHigh float64 `yaml:"shorePerspHigh"`
+	ShorePerspLow  float64 `yaml:"shorePerspLow"`
+	ShoreBias      float64 `yaml:"shoreBias"`
+	LandDistHigh   float64 `yaml:"landDistHigh"`
+	LandDistLow    float64 `yaml:"landDistLow"`
+	WaveNearHigh   float64 `yaml:"waveNearHigh"`
+	WaveNearLow    float64 `yaml:"waveNearLow"`
+	WaveOctaves    int     `yaml:"waveOctaves"`
+
+	CityBandCap float64 `yaml:"cityBandCap"`
+}
+
 // pipelineElements is the scene's element order as versioned algorithm keys,
 // used as the default Generator and Renderer key list (these resolve against the
 // scene package's generator/renderer registries). Directors default to the single
 // scene director. The keys are part of the on-disk config contract.
 var pipelineElements = []string{
 	"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
-	"clouds.v0", "mountains.v0", "ground.v0", "cities.v0", "water.v0",
+	"clouds.v0", "mountains.v0", "ground.v1", "cities.v1", "water.v1",
 }
 
 // DefaultConfig returns the complete built-in configuration. Its values mirror
@@ -112,7 +189,7 @@ func DefaultConfig() Config {
 	rends := append([]string(nil), pipelineElements...)
 	return Config{
 		Algorithms: Algorithms{
-			Directors:  []string{"scene.v0"},
+			Directors:  []string{"scene.v1"},
 			Generators: gens,
 			Renderers:  rends,
 		},
@@ -123,6 +200,25 @@ func DefaultConfig() Config {
 			ColorSatMin: 0.0, ColorSatMax: 0.35, ColorValue: 1.0,
 			BrightMin: 0.40, BrightMax: 1.0,
 			AmbientBase: 0.02, AmbientScale: 0.38, AmbientPow: 2.0,
+		},
+		Perspective: PerspectiveConfig{
+			LowChance:        0.5,
+			GroundNearCell:   140.0, // ~140px macro blobs at the nearest ground: large terrain structure
+			GroundDetailCell: 16.0,  // ~16px fine dirt grain layered on the blobs up close
+			GroundDetailAmt:  0.6,   // detail-layer strength relative to the macro layer
+			GroundBias:       1.2,   // horizon recession sharpness (smaller crushes the far field into a thinner band)
+			GroundContrast:   1.4,   // texture light/dark strength for the near dirt
+			HorizonPivot:     0.50,  // horizon at vertical middle reads as eye level
+			HorizonGain:      1.0,   // looking up (low horizon) steepens the depth falloff
+			ShorePerspHigh:   0.2,   // gentle swell perspective from the elevated view
+			ShorePerspLow:    1.0,   // full swell perspective at ground level
+			ShoreBias:        0.18,  // wave world-depth recession sharpness
+			LandDistHigh:     1.0,   // high (elevated): the coast sits where the map places it
+			LandDistLow:      3.0,   // low (on the ground): the coast is pushed toward the horizon, open water in front
+			WaveNearHigh:     3.0,   // near waves ~3× the base in high mode
+			WaveNearLow:      8.0,   // near waves much larger at ground level
+			WaveOctaves:      4,     // long swells carrying shorter chop
+			CityBandCap:      0.02,  // keep the city pinned almost on the horizon itself
 		},
 	}
 }

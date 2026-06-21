@@ -94,16 +94,28 @@ func (g *Ground) RenderList(c *Context, list SceneList) error {
 	if err != nil {
 		return err
 	}
+	// The v0 ground always draws at the high vantage stretch. ground.v1's low mode
+	// uses renderGroundLow for the perspective (horizontal-fanning) look.
+	horizon := c.Settings.HorizonY
+	span := float64(c.H - horizon)
+	vy := groundDepthWarp(c.H-horizon, span, groundStretch, 1.0, groundStretchPow)
+	return renderGround(c, terr, vy)
+}
 
+// renderGround draws a ground terrain onto the canvas using vy, the per-row vertical
+// noise-sample coordinate (its spacing sets how compressed the texture is at each
+// depth). It is the v0 high-vantage path; ground.v1's low mode uses renderGroundLow
+// instead. It consumes no randomness, so the same terrain + vy always draw the same
+// pixels.
+func renderGround(c *Context, terr groundTerrain, vy []float64) error {
 	horizon := c.Settings.HorizonY
 	w, h := c.W, c.H
+	span := float64(h - horizon)
 
 	variable := c.GroundVariable
 	grad := c.GroundGradient
 	seed := terr.seed
 	wanderSeed := terr.wanderSeed
-	span := float64(h - horizon) // ground height in pixels
-	vy := groundDepthWarp(h-horizon, span)
 
 	bands := groundBands(horizon, h)
 	per := groundAnimDuration / time.Duration(len(bands))
@@ -151,18 +163,21 @@ func (g *Ground) RenderList(c *Context, list SceneList) error {
 }
 
 // groundDepthWarp returns, per ground row, the vertical coordinate at which to
-// sample the noise. Each row advances the coordinate by groundFreqY times a
-// stretch factor that is largest at the horizon (groundStretch) and eases to 1
-// toward the foreground. Because the coordinate climbs fast near the horizon,
-// noise features there are squeezed into thin, very stretched streaks; lower
-// down the steps shrink and the dirt looks natural. rows is the ground height
-// in pixels; span is the same value as a float.
-func groundDepthWarp(rows int, span float64) []float64 {
+// sample the noise. Each row advances the coordinate by groundFreqY times a factor
+// that ramps from stretch at the horizon down to floor at the foreground, shaped by
+// pow. Because the coordinate climbs fast where the factor is large, noise features
+// are squeezed into thin streaks there; where the factor is small the steps shrink
+// and features stretch into tall smears. The v0 ground passes (groundStretch, 1,
+// groundStretchPow) — a gentle warp easing to natural dirt; ground.v1's low mode
+// passes a large stretch with a floor far below 1, crushing the distance at the
+// horizon and smearing the near ground at the bottom. rows is the ground height in
+// pixels; span is the same value as a float.
+func groundDepthWarp(rows int, span, stretch, floor, pow float64) []float64 {
 	vy := make([]float64, rows)
 	acc := 0.0
 	for i := range vy {
 		tb := float64(i) / span
-		m := 1 + (groundStretch-1)*math.Pow(1-tb, groundStretchPow)
+		m := floor + (stretch-floor)*math.Pow(1-tb, pow)
 		acc += groundFreqY * m
 		vy[i] = acc
 	}

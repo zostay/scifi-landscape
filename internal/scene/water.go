@@ -167,6 +167,53 @@ type ocean struct {
 	landSeed int
 	seaLevel float64
 	coast    float64
+
+	// Perspective shore mapping (set by the v1 path; zero for v0). perspBias sets the
+	// wave world-depth recession sharpness and perspCenterX is the vanishing-point
+	// column; both feed the v1 elev/wave perspective. shore is the geometric coastline
+	// map, useShore selects it over the v0 noise model in elev, and shoreDist scales
+	// world distance (>1 pushes land toward the horizon — the "seeing less" look). Both
+	// the cities (via LandAt) and water.v1 build these from the same globals, so the
+	// boundary they see agrees.
+	perspBias    float64
+	perspCenterX float64
+	shore        shoreModel
+	useShore     bool
+	shoreDist    float64
+}
+
+// withPerspective returns a shallow copy of the ocean carrying the perspective
+// parameters resolved from p and the scene width w. The wave-perspective fields
+// (perspBias, perspCenterX) are always set, since water.v1 needs them for the swell.
+// The geometric coastline (useShore/shore/shoreDist) is enabled only when a land
+// distance is resolved (LandDist > 0, i.e. a v1 ocean); otherwise the ocean keeps the
+// v0 screen-space noise land.
+//
+// This gate must match the one in Scene.newContext, which builds the shared LandAt the
+// cities read: newContext applies withPerspective only when LandDist > 0, while water.v1
+// applies it unconditionally — so if useShore were set regardless of LandDist, a config
+// resolving LandDist == 0 would give water a geometric coast while the cities kept v0
+// noise land, and buildings would stand in the water. Gating useShore on the same
+// LandDist > 0 keeps both consumers on the same boundary.
+func (o *ocean) withPerspective(p Perspective, w int) *ocean {
+	if o == nil {
+		return nil
+	}
+	c := *o
+	c.perspBias = p.ShoreBias
+	if c.perspBias <= 0 {
+		c.perspBias = 0.2
+	}
+	c.perspCenterX = float64(w) / 2
+	if p.LandDist > 0 {
+		// Build the geometric coastline map (deterministic from the land seed), used by
+		// the v1 elev in place of the noise model. shoreDist pushes land toward the
+		// horizon at the ground-level vantage.
+		c.shore = buildShoreModel(o.landSeed)
+		c.useShore = true
+		c.shoreDist = p.LandDist
+	}
+	return &c
 }
 
 // buildOcean decides whether a scene has an ocean and, if so, its color, waves,
@@ -194,12 +241,30 @@ func buildOcean(rng *rand.Rand, s Settings, h int) *ocean {
 	return o
 }
 
-// elev is the land elevation at a below-horizon point: fractal noise plus a bias
-// that rises toward the horizon, so distant coastline is common while the near
-// water stays open with scattered islands.
+// shoreSDFScale maps the coastline signed-distance field (in world units) into the
+// elevation range around seaLevel, so the renderer's beach/foam bands hug the shore.
+const shoreSDFScale = 0.35
+
+// elev is the land elevation at a below-horizon point. The v0 model (no shore map) is
+// fractal noise plus a bias that rises toward the horizon, so distant coastline is
+// common while the near water stays open with scattered islands. The v1 model drapes
+// the geometric coastline map through the perspective projection (see below).
 func (o *ocean) elev(x, y int) float64 {
 	d := float64(y-o.horizon) / float64(o.groundH)
-	return gfx.FBM(float64(x)*islandFreqX, d*islandFreqY, o.landSeed, islandOctaves) + o.coast*(1-d)
+	if !o.useShore {
+		// v0, unchanged: screen-space noise (constant horizontal frequency, linear depth).
+		return gfx.FBM(float64(x)*islandFreqX, d*islandFreqY, o.landSeed, islandOctaves) + o.coast*(1-d)
+	}
+	// v1: drape the geometric coastline map through the perspective projection. A point
+	// at screen depth d sits at world distance Z (0 at the viewer, growing toward the
+	// horizon) and lateral X (scaled by distance, so equal world widths converge toward
+	// the central vanishing point). The shore map's signed field gives land/water and
+	// the distance to shore for the beach/foam bands. Both the cities (via LandAt) and
+	// water.v1 read this, so they agree.
+	dd := clamp(d, 0.02, 1)
+	z := (1 - dd) / dd / o.shoreDist
+	xw := (float64(x) - o.perspCenterX) / o.perspCenterX / dd
+	return o.seaLevel + o.shore.landSDF(xw, z)*shoreSDFScale
 }
 
 // LandAt reports whether (x, y) is land. Above the horizon, and everywhere when

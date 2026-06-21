@@ -56,6 +56,17 @@ type building struct {
 // identical globals always yield an identical scene list. An empty list means the
 // scene has no city.
 func (c *Cities) Generate(ctx *Context) (SceneList, error) {
+	// v0 cities never cap the depth band; cities.v1 reuses generateCity with a cap
+	// for its low (ground-level) mode, keeping the city pinned far-off.
+	return generateCity(ctx, 0)
+}
+
+// generateCity resolves the scene's city into a single entity. bandCap, when
+// positive, limits the city's depth band to that fraction of the ground height, so
+// the city hugs the horizon instead of marching into the (low-mode) stretched
+// foreground; 0 leaves the band uncapped (the v0 behavior). It is the shared
+// generation core behind both the v0 cities (bandCap 0) and cities.v1's low mode.
+func generateCity(ctx *Context, bandCap float64) (SceneList, error) {
 	if ctx.Rng.Float64() >= cityChance {
 		return nil, nil
 	}
@@ -86,6 +97,12 @@ func (c *Cities) Generate(ctx *Context) (SceneList, error) {
 
 	// Shallow depth band just below the horizon (the city is far off).
 	band := max(int(rnd(ctx.Rng, cityBandLo, cityBandHi)*float64(groundH)), 3)
+	// In low mode, clamp the band so buildings stay near the horizon rather than
+	// descending into the stretched foreground. The rnd draw above is left intact, so
+	// only the band's value (not the random stream) changes.
+	if bandCap > 0 {
+		band = min(band, max(int(bandCap*float64(groundH)), 3))
+	}
 
 	// One dark, low-saturation palette for the whole city.
 	hue := ctx.Rng.Float64() * 360
