@@ -23,14 +23,18 @@ import (
 // directors / generators / renderers refactor proceeds, every step is a
 // mechanical reorganization that must NOT change a single pixel for any seed in
 // this matrix. This test renders that matrix headlessly, hashes the raw RGBA
-// pixels, and compares against testdata/golden.txt.
+// pixels, and compares against the per-architecture baseline
+// testdata/golden.<GOARCH>.txt (see goldenFile — the hashes are bit-exact only
+// within one GOARCH).
 //
-// To (re)generate the goldens after an INTENTIONAL output change, run:
+// To (re)generate THIS machine's baseline after an INTENTIONAL output change, run:
 //
 //	UPDATE_GOLDEN=1 go test ./internal/scene -run TestGolden
 //
-// Regenerating is a deliberate act: only do it when you mean to change what a
-// seed looks like, and review the diff to golden.txt as part of that change.
+// To regenerate every architecture's baseline, run the "Regenerate golden
+// baselines" workflow (.github/workflows/golden-bootstrap.yaml) and commit its
+// per-arch artifacts. Regenerating is a deliberate act: only do it when you mean to
+// change what a seed looks like, and review the diff as part of that change.
 
 // goldenCase is one entry in the reproducibility matrix.
 type goldenCase struct {
