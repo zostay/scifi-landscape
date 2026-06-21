@@ -5,6 +5,14 @@ name: CI
 # suite — which includes the reproducibility golden (the behavioral freeze) and
 # the additive-only schema contract. A red check here means a seed's output moved
 # or a released serialized field changed.
+#
+# Runs on macOS (Apple Silicon, arm64) deliberately: the golden hashes in
+# internal/scene/testdata/golden.txt are generated on the maintainer's darwin/arm64
+# machine, and Go's math transcendentals (Sin/Exp/Pow/…) have per-GOARCH assembly
+# that differs in the last bit — so the pixel hashes are architecture-specific. CI
+# must match that architecture to verify the golden suite faithfully. (Making the
+# goldens portable across architectures would be a separate change.) Building on
+# macOS also needs no system packages — ebiten links the platform frameworks.
 on:
   push:
     branches: [master]
@@ -20,7 +28,7 @@ concurrency:
 jobs:
   verify:
     name: verify (build, vet, gofmt, golden + schema contract)
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,23 +38,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # The windowed app links cgo against the system OpenGL/X11/ALSA libraries
-      # (ebiten), so `go build ./...` needs their dev headers even though CI never
-      # opens a window — the golden suite renders headlessly to an in-memory canvas.
-      - name: Install ebiten build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev \
-            libxcursor-dev \
-            libxi-dev \
-            libxinerama-dev \
-            libxrandr-dev \
-            libxxf86vm-dev \
-            libasound2-dev \
-            pkg-config
-
       # Runs build + vet + gofmt check + `go test ./...` (golden + contract). This
-      # is the same gate the /release skill runs before tagging.
+      # is the same gate the /release skill runs before tagging. The golden suite
+      # renders headlessly to an in-memory canvas — no window is opened.
       - name: make verify
         run: make verify
