@@ -1,0 +1,52 @@
+name: CI
+
+# Run the project's change-contract gate on every push to master and on every
+# pull request. `make verify` builds, vets, checks gofmt, and runs the full test
+# suite — which includes the reproducibility golden (the behavioral freeze) and
+# the additive-only schema contract. A red check here means a seed's output moved
+# or a released serialized field changed.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (build, vet, gofmt, golden + schema contract)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The windowed app links cgo against the system OpenGL/X11/ALSA libraries
+      # (ebiten), so `go build ./...` needs their dev headers even though CI never
+      # opens a window — the golden suite renders headlessly to an in-memory canvas.
+      - name: Install ebiten build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxxf86vm-dev \
+            libasound2-dev \
+            pkg-config
+
+      # Runs build + vet + gofmt check + `go test ./...` (golden + contract). This
+      # is the same gate the /release skill runs before tagging.
+      - name: make verify
+        run: make verify
