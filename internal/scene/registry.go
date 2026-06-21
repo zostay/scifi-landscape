@@ -108,4 +108,10 @@ func init() {
 	RegisterElement("ground.v1", &Ground1{})
 	RegisterElement("cities.v1", &Cities1{})
 	RegisterElement("water.v1", &Water1{})
+
+	// mountains.v1 brings the range's feet down to the horizon at the coastline when
+	// the scene has an ocean (byte-identical to v0 with no ocean). It keeps the
+	// "mountains" stream key and the MountainsV0 schema, and is the default
+	// pipeline's mountain element (see config.pipelineElements).
+	RegisterElement("mountains.v1", &Mountains1{})
 }

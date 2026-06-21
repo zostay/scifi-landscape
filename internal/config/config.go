@@ -176,7 +176,7 @@ type PerspectiveConfig struct {
 // scene director. The keys are part of the on-disk config contract.
 var pipelineElements = []string{
 	"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
-	"clouds.v0", "mountains.v0", "ground.v1", "cities.v1", "water.v1",
+	"clouds.v0", "mountains.v1", "ground.v1", "cities.v1", "water.v1",
 }
 
 // DefaultConfig returns the complete built-in configuration. Its values mirror
