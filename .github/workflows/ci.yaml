@@ -6,13 +6,12 @@ name: CI
 # the additive-only schema contract. A red check here means a seed's output moved
 # or a released serialized field changed.
 #
-# Runs on macOS (Apple Silicon, arm64) deliberately: the golden hashes in
-# internal/scene/testdata/golden.txt are generated on the maintainer's darwin/arm64
-# machine, and Go's math transcendentals (Sin/Exp/Pow/…) have per-GOARCH assembly
-# that differs in the last bit — so the pixel hashes are architecture-specific. CI
-# must match that architecture to verify the golden suite faithfully. (Making the
-# goldens portable across architectures would be a separate change.) Building on
-# macOS also needs no system packages — ebiten links the platform frameworks.
+# The golden pixel hashes are bit-exact only within one GOARCH (Go's float math —
+# FMA fusion, per-arch assembly — differs across architectures), so each arch has
+# its own baseline (internal/scene/testdata/golden.<GOARCH>.txt). The matrix runs
+# every supported architecture against its own baseline. The two arm64 runners
+# (macOS + Linux) share golden.arm64.txt, which also confirms the hashes are
+# OS-independent within an architecture.
 on:
   push:
     branches: [master]
@@ -27,8 +26,18 @@ concurrency:
 
 jobs:
   verify:
-    name: verify (build, vet, gofmt, golden + schema contract)
-    runs-on: macos-latest
+    name: verify (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-latest
+          - name: linux-amd64
+            runner: ubuntu-latest
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,8 +47,25 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Runs build + vet + gofmt check + `go test ./...` (golden + contract). This
-      # is the same gate the /release skill runs before tagging. The golden suite
-      # renders headlessly to an in-memory canvas — no window is opened.
+      # The windowed app links cgo against the system OpenGL/X11/ALSA libraries
+      # (ebiten), so `go build ./...` needs their dev headers on Linux. macOS links
+      # the platform frameworks and needs no extra packages. CI never opens a
+      # window — the golden suite renders headlessly to an in-memory canvas.
+      - name: Install ebiten build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxxf86vm-dev \
+            libasound2-dev \
+            pkg-config
+
+      # build + vet + gofmt check + `go test ./...` (golden + contract). Same gate
+      # the /release skill runs before tagging.
       - name: make verify
         run: make verify

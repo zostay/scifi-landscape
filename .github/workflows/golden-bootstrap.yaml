@@ -1,0 +1,74 @@
+name: Regenerate golden baselines
+
+# Maintainer utility (manual trigger): regenerate the per-architecture golden
+# baselines and upload each as an artifact, so they can be committed. Use it to
+# bootstrap a new architecture's baseline, or after an INTENTIONAL output change
+# to regenerate every architecture at once (the local machine can only produce its
+# own arch). Download the artifacts and commit the files under
+# internal/scene/testdata/. This never writes to the repo itself.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regen:
+    name: regen (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-latest
+            goarch: arm64
+          - name: linux-amd64
+            runner: ubuntu-latest
+            goarch: amd64
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install ebiten build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxxf86vm-dev \
+            libasound2-dev \
+            pkg-config
+
+      - name: Regenerate this architecture's golden baseline
+        env:
+          UPDATE_GOLDEN: "1"
+          CGO_CFLAGS: -Wno-deprecated-declarations
+        run: go test ./internal/scene -run 'TestGolden$' -count=1
+
+      - name: Sanity check (GOARCH matches the matrix entry)
+        run: |
+          got="$(go env GOARCH)"
+          if [ "$got" != "${{ matrix.goarch }}" ]; then
+            echo "runner GOARCH=$got != expected ${{ matrix.goarch }}"; exit 1
+          fi
+          echo "GOARCH=$got — wrote internal/scene/testdata/golden.$got.txt"
+
+      - name: Upload golden baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.name }}
+          path: internal/scene/testdata/golden.${{ matrix.goarch }}.txt
+          if-no-files-found: error

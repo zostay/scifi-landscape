@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -152,7 +153,14 @@ func renderHash(t *testing.T, c goldenCase) string {
 	return hex.EncodeToString(sum[:])
 }
 
-const goldenFile = "testdata/golden.txt"
+// goldenFile is the per-architecture golden baseline. The hashed pixels are bit-
+// exact only within one GOARCH: Go's floating-point math differs across
+// architectures (FMA fusion on arm64, per-arch math assembly), so a value
+// occasionally rounds to a different 8-bit pixel on, say, linux/amd64 vs darwin/
+// arm64. Each architecture therefore keeps its own baseline (golden.arm64.txt,
+// golden.amd64.txt, …). The two arm64 CI runners (macOS + Linux) verify the same
+// file, which also confirms the hashes are OS-independent within an architecture.
+var goldenFile = "testdata/golden." + runtime.GOARCH + ".txt"
 
 func readGolden(t *testing.T) map[string]string {
 	t.Helper()
