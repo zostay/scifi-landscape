@@ -155,12 +155,12 @@ func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []
 
 // drawShadedRangeColumn draws one column of an extra mountain range: the shaded peak
 // (drawMountainColumnShaded) plus the foot bulge below the baseline (the foot "negative
-// contour"; see footBulgeDepth). The bulge is the foot color, darkened toward the bottom
-// and form-shaded, so the swelling foot reads as a rounded, sloped body rather than a
-// flat edge. The foot is clipped to floor (the lowest row this range may occupy) so it
-// never shows below a nearer range. Finally, where the foot meets water (shore > 0), the
-// column is reflected into the water tinted with the water color. It consumes no
-// randomness.
+// contour"; see footBulgeDepth). The bulge is the foot color carrying the SAME form
+// shading as the surface above it — no extra darkening toward the bottom, which would
+// read as the mountain curling under into shadow rather than meeting the ground. The
+// foot is clipped to floor (the lowest row this range may occupy) so it never shows
+// below a nearer range. Finally, where the foot meets water (shore > 0), the column is
+// reflected into the water tinted with the water color. It consumes no randomness.
 func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, shade mountainShadeFunc, floor, shore int, water gfx.RGB) {
 	drawMountainColumnShaded(img, w, h, x, baseline, heights, maxAlt, grad, texSeed, slopeWin, shade)
 
@@ -178,7 +178,7 @@ func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []flo
 				continue
 			}
 			col := base
-			col.V *= (1 - rangeBulgeShade*clamp(depth/dcol, 0, 1)) * shade(x, y, slope, texSeed)
+			col.V *= shade(x, y, slope, texSeed)
 			blendPixel(img, w, h, x, y, col.RGB(), cov)
 		}
 	}
@@ -255,8 +255,6 @@ const (
 	bulgeArmFrac      = 0.075 // how far an arm extends the foot outward (× maxAlt)
 	bulgeWeakFrac     = 0.03  // the weak, very small tie to peak height (× hcol)
 	bulgeSeedOffset   = 86711 // decorrelate the foot contour from the peak/texture noise
-
-	rangeBulgeShade = 0.25 // darken the underside toward its lowest point (shadowed foot)
 )
 
 // footBulgeDepth is how far (px) the foot bulges below the baseline for a column whose
