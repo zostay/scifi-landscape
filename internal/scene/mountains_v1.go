@@ -125,7 +125,7 @@ func (m *Mountains1) RenderList(c *Context, list SceneList) error {
 		x1 := min(x0+batch, w)
 		c.Canvas.Draw(func(img *image.RGBA) {
 			for x := x0; x < x1; x++ {
-				drawMountainColumnShaded(img, w, h, x, horizon, mr.heights, mr.maxAlt, mr.grad, mr.texSeed, slopeWin, shade)
+				drawMountainColumnShaded(img, w, h, x, horizon, mr.heights, mr.maxAlt, mr.grad, mr.texSeed, slopeWin, 1, shade)
 			}
 		})
 		if err := sleep(c.Ctx, per); err != nil {

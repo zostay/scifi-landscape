@@ -68,21 +68,31 @@ func slopeWindow(maxAlt float64) int {
 	return max(int(conicalSlopeWinFrac*maxAlt), 2)
 }
 
-// broadRidgeSlope is the lateral slope of the ridge at column x measured over a window
-// of half-width win (clamped at the edges): the broad, mountain-scale tilt that gives
-// each peak its soft conical sides.
+// broadRidgeSlope is the lateral slope of the ridge at column x: the difference between
+// the mean height over the half-window to its right and the mean over the half-window
+// to its left. Averaging (rather than sampling two points) smooths out the per-bump
+// jaggedness, so the slope follows the big-peak faces and the conical shade reads as a
+// clean left/right gradient instead of a hard light/dark stripe at every bump — which,
+// on the tall foreground ranges, looked like vertical banding.
 func broadRidgeSlope(heights []float64, x, win int) float64 {
-	l, r := x-win, x+win
-	if l < 0 {
-		l = 0
-	}
-	if r >= len(heights) {
-		r = len(heights) - 1
-	}
-	if r <= l {
+	n := len(heights)
+	if n == 0 || win < 1 {
 		return 0
 	}
-	return (heights[r] - heights[l]) / float64(r-l)
+	mean := func(lo, hi int) float64 {
+		if lo < 0 {
+			lo = 0
+		}
+		if hi > n-1 {
+			hi = n - 1
+		}
+		s := 0.0
+		for i := lo; i <= hi; i++ {
+			s += heights[i]
+		}
+		return s / float64(hi-lo+1)
+	}
+	return (mean(x, x+win) - mean(x-win, x)) / float64(win)
 }
 
 // mountainMottle is the original subtle isotropic surface texture (the previous
@@ -133,11 +143,15 @@ func ruggedFacetShade(x, y, texSeed int) float64 {
 // heightmap shares the same horizontal peak structure, so the window must be the same
 // for all of them — deriving it from a range's height-scaled maxAlt would widen it for
 // the taller near ranges until it spanned several peaks and the per-peak left/right
-// shading washed out. It needs the whole heightmap to take the lateral slope, and
+// shading washed out. heightScale divides the lateral slope so the shade reflects the
+// mountain's un-stretched shape: the near ranges are drawn 2-4x taller by perspective,
+// which would otherwise make their slopes that much steeper and the conical shade
+// saturate into strong vertical light/dark — the far horizon range (heightScale 1) is
+// the reference look. It needs the whole heightmap to take the lateral slope, and
 // consumes no randomness.
-func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []float64, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, shade mountainShadeFunc) {
+func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []float64, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, heightScale float64, shade mountainShadeFunc) {
 	hcol := heights[x]
-	slope := broadRidgeSlope(heights, x, slopeWin)
+	slope := broadRidgeSlope(heights, x, slopeWin) / heightScale
 	top := baseline - int(math.Ceil(hcol)) - 1
 	// Start at the foot, but never above the bottom row, so a range whose foot sits
 	// below the bottom edge (high vantage) still draws the part of its peak in view.
@@ -161,11 +175,11 @@ func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []
 // foot is clipped to floor (the lowest row this range may occupy) so it never shows
 // below a nearer range. Finally, where the foot meets water (shore > 0), the column is
 // reflected into the water tinted with the water color. It consumes no randomness.
-func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, shade mountainShadeFunc, floor, shore int, water gfx.RGB) {
-	drawMountainColumnShaded(img, w, h, x, baseline, heights, maxAlt, grad, texSeed, slopeWin, shade)
+func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, heightScale float64, shade mountainShadeFunc, floor, shore int, water gfx.RGB) {
+	drawMountainColumnShaded(img, w, h, x, baseline, heights, maxAlt, grad, texSeed, slopeWin, heightScale, shade)
 
 	if dcol > 0 {
-		slope := broadRidgeSlope(heights, x, slopeWin)
+		slope := broadRidgeSlope(heights, x, slopeWin) / heightScale
 		base := grad.At(0) // foot color (darkest end of the range gradient)
 		bottom := baseline + int(math.Ceil(dcol))
 		for y := baseline; y <= bottom && y < h && y <= floor; y++ {

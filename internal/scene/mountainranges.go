@@ -201,8 +201,17 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 		per = time.Millisecond
 	}
 
+	// The shade reads the slope of the un-stretched shape: divide it by how much taller
+	// than the base scale this range is drawn (perspective), so a near range shades like
+	// the far horizon range rather than saturating into vertical light/dark.
+	baseMaxAlt := mountainHeightMax * float64(c.Settings.HorizonY)
+
 	for i, b := range bands {
 		floor := clipFloor[i]
+		heightScale := 1.0
+		if baseMaxAlt > 0 {
+			heightScale = b.maxAlt / baseMaxAlt
+		}
 		for x0 := 0; x0 < w; x0 += batch {
 			if err := c.Ctx.Err(); err != nil {
 				return err
@@ -214,7 +223,7 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 					// silhouette swelling downward near peaks (see drawShadedRangeColumn) —
 					// with the foot clipped to floor[x] so it never shows below a nearer range,
 					// then its reflection mirrored into the water at shore[x].
-					drawShadedRangeColumn(img, w, h, x, b.baseline, b.heights, bandBulge(b, x), b.maxAlt, b.grad, b.texSeed, slopeWin, shade, floor[x], bandShore(b, x), water)
+					drawShadedRangeColumn(img, w, h, x, b.baseline, b.heights, bandBulge(b, x), b.maxAlt, b.grad, b.texSeed, slopeWin, heightScale, shade, floor[x], bandShore(b, x), water)
 				}
 			})
 			if err := sleep(c.Ctx, per); err != nil {
