@@ -114,4 +114,9 @@ func init() {
 	// "mountains" stream key and the MountainsV0 schema, and is the default
 	// pipeline's mountain element (see config.pipelineElements).
 	RegisterElement("mountains.v1", &Mountains1{})
+
+	// mountainranges.v0 draws the extra receding ridgelines below the horizon. It reads
+	// the v1 globals' resolved base parameters and renders last (after the ocean), so a
+	// coastal range occludes the sea behind it and reflects into the water in front.
+	RegisterElement("mountainranges.v0", &MountainRanges{})
 }

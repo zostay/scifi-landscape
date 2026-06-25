@@ -144,3 +144,136 @@ func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []
 		blendPixel(img, w, h, x, y, col.RGB(), cov)
 	}
 }
+
+// drawShadedRangeColumn draws one column of an extra mountain range: the shaded peak
+// (drawMountainColumnShaded) plus the foot bulge below the baseline (the foot "negative
+// contour"; see footBulgeDepth). The bulge is the foot color, darkened toward the bottom
+// and form-shaded, so the swelling foot reads as a rounded, sloped body rather than a
+// flat edge. The foot is clipped to floor (the lowest row this range may occupy) so it
+// never shows below a nearer range. Finally, where the foot meets water (shore > 0), the
+// column is reflected into the water tinted with the water color. It consumes no
+// randomness.
+func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol, maxAlt float64, grad gfx.Gradient, texSeed int, shade mountainShadeFunc, floor, shore int, water gfx.RGB) {
+	drawMountainColumnShaded(img, w, h, x, baseline, heights, maxAlt, grad, texSeed, shade)
+
+	if dcol > 0 {
+		slope := broadRidgeSlope(heights, x, slopeWindow(maxAlt))
+		base := grad.At(0) // foot color (darkest end of the range gradient)
+		bottom := baseline + int(math.Ceil(dcol))
+		for y := baseline; y <= bottom && y < h && y <= floor; y++ {
+			if y < 0 {
+				continue
+			}
+			depth := float64(y - baseline)     // 0 at the foot row, increasing downward
+			cov := clamp(dcol-depth+0.5, 0, 1) // 1 inside, feathered at the lower edge
+			if cov <= 0 {
+				continue
+			}
+			col := base
+			col.V *= (1 - rangeBulgeShade*clamp(depth/dcol, 0, 1)) * shade(x, y, slope, texSeed)
+			blendPixel(img, w, h, x, y, col.RGB(), cov)
+		}
+	}
+
+	if shore > 0 {
+		drawRangeReflection(img, w, h, x, baseline, heights, dcol, shore, water)
+	}
+}
+
+const (
+	// Reflection: where a range's foot meets water (within reflectShoreExtraFrac of the
+	// sky below the foot), the column is mirrored across the waterline into the water,
+	// sampling the just-drawn mountain and tinting it toward the water color — more
+	// tinted, darker, and fainter with depth, mimicking the water's own fresnel.
+	reflectShoreExtraFrac = 0.05
+	reflectAlpha          = 0.5  // reflection opacity at the waterline
+	reflectFade           = 0.55 // how much the opacity drops by the deepest reflected row
+	reflectTintMin        = 0.30 // water tint at the waterline
+	reflectTintMax        = 0.70 // water tint at the deepest reflected row
+	reflectDark           = 0.30 // darkening at the deepest reflected row
+)
+
+// drawRangeReflection mirrors a range column across its waterline (shore) into the
+// water below, sampling the mountain pixels just drawn above the line and tinting them
+// toward the water color. The mirror spans the drawn silhouette (peak + foot); above
+// the peak is sky, which the water already reflects, so the mirror stops there. It
+// consumes no randomness.
+func drawRangeReflection(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol float64, shore int, water gfx.RGB) {
+	top := baseline - int(math.Ceil(heights[x])) - 1 // peak top; above it is sky
+	footBottom := baseline + int(math.Ceil(dcol))    // lowest drawn mountain row
+	span := float64(shore - top)                     // mirror extent (mountain above the line)
+	if span <= 0 {
+		return
+	}
+	for yr := shore + 1; yr < h; yr++ {
+		ys := 2*shore - yr // source row above the waterline
+		if ys < top {
+			break // mirrored past the peak into sky
+		}
+		if ys > footBottom {
+			continue // the small land gap between the foot and the shore: no mountain to mirror
+		}
+		off := img.PixOffset(x, ys)
+		sr := float64(img.Pix[off]) / 255
+		sg := float64(img.Pix[off+1]) / 255
+		sb := float64(img.Pix[off+2]) / 255
+
+		frac := clamp(float64(yr-shore)/span, 0, 1)
+		tint := reflectTintMin + (reflectTintMax-reflectTintMin)*frac
+		dark := 1 - reflectDark*frac
+		out := gfx.RGB{
+			R: (sr + (water.R-sr)*tint) * dark,
+			G: (sg + (water.G-sg)*tint) * dark,
+			B: (sb + (water.B-sb)*tint) * dark,
+		}
+		blendPixel(img, w, h, x, yr, out, reflectAlpha*(1-reflectFade*frac))
+	}
+}
+
+const (
+	// The foot bulge is a "negative contour" below the baseline that gives the range a
+	// 3D body. The foot is almost FLAT — a thin near-constant base — with the variation
+	// coming from occasional outward "arms": a sparse, independent low-frequency noise
+	// (thresholded, so it is nothing most of the way and flares into a wide bump here and
+	// there). The peak height is linked only very weakly, so the underside never mirrors
+	// the skyline. The foot fades out only at the range's true lateral ends (over a couple
+	// of pixels of peak height), not in the valleys between peaks. All depths are fractions
+	// of maxAlt, so the foot tracks resolution and the range's altitude scale.
+	bulgeEdgePx       = 2.5   // peak height (px) over which the foot fades in at the very edges
+	bulgeFlatFrac     = 0.012 // the thin, near-constant flat base depth (× maxAlt)
+	bulgeArmFreq      = 0.012 // low frequency → wide, occasional arms
+	bulgeArmOct       = 2     //
+	bulgeArmThreshold = 0.60  // only noise above this flares into an arm (keeps arms sparse)
+	bulgeArmFrac      = 0.075 // how far an arm extends the foot outward (× maxAlt)
+	bulgeWeakFrac     = 0.03  // the weak, very small tie to peak height (× hcol)
+	bulgeSeedOffset   = 86711 // decorrelate the foot contour from the peak/texture noise
+
+	rangeBulgeShade = 0.25 // darken the underside toward its lowest point (shadowed foot)
+)
+
+// footBulgeDepth is how far (px) the foot bulges below the baseline for a column whose
+// peak rises hcol px, given the range's altitude scale and a per-range seed. It is a
+// thin flat base plus an occasional outward "arm" (sparse, independent noise) plus a
+// very weak nudge from the peak height — so the underside reads as a nearly flat foot
+// with the odd arm flowing outward, never a mirror of the skyline. It fades to nothing
+// only at the range's lateral ends. Zero peak → no foot.
+func footBulgeDepth(hcol, maxAlt float64, x, bulgeSeed int) float64 {
+	if hcol <= 0 || maxAlt <= 0 {
+		return 0
+	}
+	edge := smoothstep(0, bulgeEdgePx, hcol) // fade in only at the true lateral edge
+
+	flat := bulgeFlatFrac * maxAlt
+
+	// Occasional outward arm: a sparse, independent bump that is zero until the noise
+	// clears a threshold, then rises into a wide flare — uncorrelated with the skyline.
+	n := gfx.FBM(float64(x)*bulgeArmFreq, 0, bulgeSeed, bulgeArmOct)
+	arm := 0.0
+	if n > bulgeArmThreshold {
+		arm = (n - bulgeArmThreshold) / (1 - bulgeArmThreshold) * bulgeArmFrac * maxAlt
+	}
+
+	weak := bulgeWeakFrac * hcol // very small, very weak tie to the peak
+
+	return edge * (flat + arm + weak)
+}
