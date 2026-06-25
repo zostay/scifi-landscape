@@ -47,6 +47,14 @@ type Config struct {
 	// the v1 ground/cities/water algorithms (to shape the low-mode look). Zero-value
 	// callers (the v0 director) ignore it entirely.
 	Perspective PerspectiveConfig `yaml:"perspective"`
+
+	// Mountains parameterizes the extra mountain ranges (the mountainranges.v0
+	// element) that recede below the horizon behind the city: how likely/how many
+	// per vantage, how far down the ground they reach, and the base height/smoothness
+	// each range varies around. It is read by the scene.v1 director (to resolve the
+	// per-vantage base parameters into the globals). Zero-value callers (the v0
+	// director) leave it empty, which means "no extra ranges".
+	Mountains MountainConfig `yaml:"mountains"`
 }
 
 // Algorithms lists the versioned registry keys of the algorithms that build a
@@ -170,6 +178,45 @@ type PerspectiveConfig struct {
 	CityBandCap float64 `yaml:"cityBandCap"`
 }
 
+// MountainConfig parameterizes the extra mountain ranges (mountainranges.v0): the
+// receding ridgelines that fill the midground below the horizon range, behind the
+// city. The scene.v1 director resolves the per-vantage values (the *High/*Low
+// pairs and count caps) into the globals; the element then rolls a count and
+// varies each range a little around the base height/smoothness.
+//
+//   - Chance — probability a scene has any extra ranges at all.
+//   - CountMaxHigh / CountMaxLow — the most extra ranges drawn from each vantage
+//     (a high, elevated view shows more receding ridgelines than a ground-level one).
+//   - BaselineFracHigh / BaselineFracLow — how far below the horizon the nearest
+//     range's foot may sit, as a fraction of the ground height. High spreads the
+//     ranges down the ground; low keeps them in a thin strip at the horizon.
+//   - HeightFrac / HeightStd — mean and standard deviation of a range's peak height,
+//     as a fraction of the horizon height in pixels (kept modest so the extra ranges
+//     read as background behind the taller horizon range).
+//   - Smoothness / SmoothnessStd — mean and standard deviation of ridge smoothness
+//     (high = few gentle key points, low = many jagged ones; see mountainHeights).
+//   - BaselineJitter — per-range jitter of the foot row, as a fraction of the ground
+//     height, so the ranges are not perfectly evenly spaced.
+type MountainConfig struct {
+	Chance           float64 `yaml:"chance"`
+	CountMaxHigh     int     `yaml:"countMaxHigh"`
+	CountMaxLow      int     `yaml:"countMaxLow"`
+	BaselineFracHigh float64 `yaml:"baselineFracHigh"`
+	BaselineFracLow  float64 `yaml:"baselineFracLow"`
+	HeightFrac       float64 `yaml:"heightFrac"`
+	HeightStd        float64 `yaml:"heightStd"`
+	Smoothness       float64 `yaml:"smoothness"`
+	SmoothnessStd    float64 `yaml:"smoothnessStd"`
+	BaselineJitter   float64 `yaml:"baselineJitter"`
+
+	// RuggedChance is the probability (in [0,1]) that a scene renders its mountains in
+	// the alternate "rugged" style — a craggier, more broken-rock look — instead of the
+	// default conical (soft, eroded-slope) shading. 0 disables it; 1 forces it. The
+	// scene.v1 director rolls the per-scene style from it, applied to both the horizon
+	// range and the extra ranges.
+	RuggedChance float64 `yaml:"ruggedChance"`
+}
+
 // pipelineElements is the scene's element order as versioned algorithm keys,
 // used as the default Generator and Renderer key list (these resolve against the
 // scene package's generator/renderer registries). Directors default to the single
@@ -219,6 +266,19 @@ func DefaultConfig() Config {
 			WaveNearLow:      8.0,   // near waves much larger at ground level
 			WaveOctaves:      4,     // long swells carrying shorter chop
 			CityBandCap:      0.02,  // keep the city pinned almost on the horizon itself
+		},
+		Mountains: MountainConfig{
+			Chance:           0.6,   // most scenes get a few receding ridgelines
+			CountMaxHigh:     10,    // a deep stack of receding ridges from the elevated view
+			CountMaxLow:      2,     // at most a range or two at ground level
+			BaselineFracHigh: 1.10,  // the nearest feet reach the bottom edge (and a touch below)
+			BaselineFracLow:  0.04,  // a thin strip near the horizon at ground level
+			HeightFrac:       0.06,  // mean peak ~6% of the horizon height (below the horizon range)
+			HeightStd:        0.008, // ranges stay close to the standard height
+			Smoothness:       0.6,   // gently rolling on average
+			SmoothnessStd:    0.05,  // only a slight spread in jaggedness
+			BaselineJitter:   0.008, // feet spaced near-evenly, just off the grid
+			RuggedChance:     0.15,  // mostly soft conical; the occasional craggier range
 		},
 	}
 }

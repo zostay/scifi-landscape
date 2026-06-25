@@ -1,20 +1,26 @@
 package scene
 
 import (
+	"image"
 	"math/rand"
+	"time"
 )
 
 // Mountains1 is the v1 mountain range. It embeds the v0 Mountains for its stream
-// key ("mountains") and entity schema (MountainsV0), and draws the exact same
-// ridge — but when the scene has an ocean it brings the range's feet down to the
-// horizon at the coastline instead of running edge to edge. Columns whose far
-// horizon is open water are tapered to nothing, so the range plants itself on the
-// land and leaves open sea (or, over offshore land, disconnected island ridges)
-// along the coast. The coast it reads is the SAME perspective-mapped ocean the
-// water renderer draws, so the feet land exactly where the water meets the sky.
+// key ("mountains") and entity schema (MountainsV0), and draws the same ridge with
+// two adjustments. It lifts a near-flat ridge to a minimum height so the horizon is
+// never bare (enforceMinRidge). And when the scene has an ocean it brings the range's
+// feet down to the horizon at the coastline instead of running edge to edge: columns
+// whose far horizon is open water are tapered to nothing, so the range plants itself
+// on the land and leaves open sea (or, over offshore land, disconnected island ridges)
+// along the coast. The coast it reads is the SAME perspective-mapped ocean the water
+// renderer draws, so the feet land exactly where the water meets the sky.
 //
-// With no ocean it is byte-identical to v0: it draws no extra randomness and
-// applies no envelope, so land-only scenes are unchanged.
+// Its Generate draws no randomness of its own beyond v0's (the floor and envelope are
+// deterministic post-processing). Its RenderList, however, is its own: it shades the
+// ridge with a slope hillshade and a facet field (see drawMountainColumnShaded) so the
+// silhouette reads as sloped rock rather than a flat fill — the same form-shading the
+// extra ranges use.
 //
 // FROZEN once released: it keeps the "mountains" stream key and the MountainsV0
 // schema of its embedded v0; add a Mountains2 for new behavior.
@@ -38,26 +44,92 @@ const (
 	coastProbe = 2
 )
 
-// Generate draws the same ridge as v0, then — when the scene has an ocean — brings
-// the range down to the horizon at the coastline (see applyCoastEnvelope). The
-// extra random draws happen only on the ocean path and only after every v0 draw,
-// so a scene with no ocean reproduces v0 exactly. The envelope is baked into the
-// stored Heights, so the renderer is unchanged and replay stays seed-independent.
+// minRidgeFrac is the smallest a horizon ridge may be, as a fraction of the sky. The
+// v0 height is |normal|·scale, which bottoms out near zero — a near-flat ridge reads
+// as "no mountains on the horizon", which looks especially wrong when the scene also
+// has extra ranges. v1 lifts a too-short ridge to this minimum so there is always a
+// visible horizon range (an ocean's coastline can still bring it down — see Generate).
+const minRidgeFrac = 0.06
+
+// Generate draws the v0 ridge, lifts it to a minimum height so the horizon is never
+// bare (enforceMinRidge), then — when the scene has an ocean — brings it down to the
+// coastline (applyCoastEnvelope), so a non-ocean scene always shows a ridge while an
+// ocean scene may still leave the horizon open over water. It draws no randomness of
+// its own beyond v0's (the floor and envelope are deterministic post-processing on the
+// stored Heights), so replay stays seed-independent.
 func (m *Mountains1) Generate(c *Context) (SceneList, error) {
 	list, err := m.Mountains.Generate(c)
 	if err != nil || len(list) == 0 {
 		return list, err
 	}
-	oc := c.Ocean
-	if oc == nil || !oc.present {
-		return list, nil // no coast to respond to: identical to v0
-	}
 	mr, err := entityToMountains(list[0])
 	if err != nil {
 		return nil, err
 	}
-	applyCoastEnvelope(c.Rng, mr.heights, oc, c.Settings.HorizonY, c.W)
+	enforceMinRidge(mr.heights, c.Settings.HorizonY)
+	if oc := c.Ocean; oc != nil && oc.present {
+		applyCoastEnvelope(c.Rng, mr.heights, oc, c.Settings.HorizonY, c.W)
+	}
 	return SceneList{mountainsToEntity(mr)}, nil
+}
+
+// enforceMinRidge scales a horizon ridge up to a minimum peak height (minRidgeFrac of
+// the sky) when it would otherwise be near-flat, preserving its shape so the result is
+// an ordinary-looking ridge rather than a flat bar. A ridge already at or above the
+// minimum is untouched. It mutates heights in place.
+func enforceMinRidge(heights []float64, horizon int) {
+	minPx := minRidgeFrac * float64(horizon)
+	var hmax float64
+	for _, v := range heights {
+		if v > hmax {
+			hmax = v
+		}
+	}
+	if hmax <= 0 || hmax >= minPx {
+		return
+	}
+	s := minPx / hmax
+	for i := range heights {
+		heights[i] *= s
+	}
+}
+
+// RenderList draws the horizon range with the v1 form-shading: each column is shaded
+// by its lateral slope (a directional hillshade) and a vertical facet field, so the
+// ridge reads as sloped, faceted rock instead of a flat altitude fill. It mirrors the
+// v0 animation (column batches over the same duration) but swaps the flat-mottle
+// column drawer for the shaded one. It consumes no randomness, so replay is
+// seed-independent.
+func (m *Mountains1) RenderList(c *Context, list SceneList) error {
+	if len(list) == 0 {
+		return nil
+	}
+	mr, err := entityToMountains(list[0])
+	if err != nil {
+		return err
+	}
+	w, h := c.W, c.H
+	horizon := c.Settings.HorizonY
+	shade := mountainShader(c.MountainRugged)
+
+	batch := max(w/mountainsAnimCols, 1)
+	per := mountainsAnimDuration / time.Duration((w+batch-1)/batch)
+
+	for x0 := 0; x0 < w; x0 += batch {
+		if err := c.Ctx.Err(); err != nil {
+			return err
+		}
+		x1 := min(x0+batch, w)
+		c.Canvas.Draw(func(img *image.RGBA) {
+			for x := x0; x < x1; x++ {
+				drawMountainColumnShaded(img, w, h, x, horizon, mr.heights, mr.maxAlt, mr.grad, mr.texSeed, shade)
+			}
+		})
+		if err := sleep(c.Ctx, per); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // applyCoastEnvelope tapers the ridge heights to zero over the columns whose far

@@ -54,6 +54,14 @@ type Context struct {
 	// Perspective carries the resolved low-mode ground-plane parameters (from the
 	// globals); the v1 generators/renderers read it when Height == Low.
 	Perspective Perspective
+	// MountainRanges carries the resolved base parameters for the extra mountain
+	// ranges (from the globals); the mountainranges.v0 generator reads it and varies
+	// each range around the base. Its zero value means no extra ranges.
+	MountainRanges MountainRangeBase
+	// MountainRugged selects the mountains' shading style (from the globals): false is
+	// the default soft conical look, true the alternate craggier rugged rock. Read by
+	// the v1 mountain and mountain-range renderers.
+	MountainRugged bool
 
 	// Ocean is the scene's resolved ocean/land model, decided up front (like the
 	// gradients) so both Cities and Water can use it: Cities to place buildings
@@ -198,6 +206,8 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.GroundVariable = g.GroundVariable
 	sctx.Height = g.Height
 	sctx.Perspective = g.Perspective
+	sctx.MountainRanges = g.MountainRanges
+	sctx.MountainRugged = g.MountainRugged
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
 	// to land while Water still reflects the city skyline. For a v1 ocean (a v1 director
