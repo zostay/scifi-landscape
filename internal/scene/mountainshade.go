@@ -60,7 +60,10 @@ func mountainShader(rugged bool) mountainShadeFunc {
 }
 
 // slopeWindow is the half-width (px) over which the lateral hillshade slope is taken,
-// so it captures the mountain-scale tilt rather than per-pixel noise.
+// so it captures the mountain-scale tilt rather than per-pixel noise. Callers pass the
+// scene's BASE altitude scale (mountainHeightMax·sky), not a range's height-scaled
+// maxAlt — every range's heightmap shares the same horizontal peak structure, so they
+// must all use the same window.
 func slopeWindow(maxAlt float64) int {
 	return max(int(conicalSlopeWinFrac*maxAlt), 2)
 }
@@ -125,11 +128,16 @@ func ruggedFacetShade(x, y, texSeed int) float64 {
 // drawMountainColumnShaded draws one column of a mountain ridge from the foot up to
 // its peak, like the frozen drawMountainColumn, but shades each pixel with the given
 // style (a broad lateral hillshade plus the style's texture) instead of the flat
-// isotropic mottle, so the silhouette reads as three-dimensional rock. It needs the
-// whole heightmap to take the lateral slope. It consumes no randomness.
-func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []float64, maxAlt float64, grad gfx.Gradient, texSeed int, shade mountainShadeFunc) {
+// isotropic mottle, so the silhouette reads as three-dimensional rock. slopeWin is the
+// lateral-slope window (px), passed in rather than derived from maxAlt: every range's
+// heightmap shares the same horizontal peak structure, so the window must be the same
+// for all of them — deriving it from a range's height-scaled maxAlt would widen it for
+// the taller near ranges until it spanned several peaks and the per-peak left/right
+// shading washed out. It needs the whole heightmap to take the lateral slope, and
+// consumes no randomness.
+func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []float64, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, shade mountainShadeFunc) {
 	hcol := heights[x]
-	slope := broadRidgeSlope(heights, x, slopeWindow(maxAlt))
+	slope := broadRidgeSlope(heights, x, slopeWin)
 	top := baseline - int(math.Ceil(hcol)) - 1
 	// Start at the foot, but never above the bottom row, so a range whose foot sits
 	// below the bottom edge (high vantage) still draws the part of its peak in view.
@@ -153,11 +161,11 @@ func drawMountainColumnShaded(img *image.RGBA, w, h, x, baseline int, heights []
 // never shows below a nearer range. Finally, where the foot meets water (shore > 0), the
 // column is reflected into the water tinted with the water color. It consumes no
 // randomness.
-func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol, maxAlt float64, grad gfx.Gradient, texSeed int, shade mountainShadeFunc, floor, shore int, water gfx.RGB) {
-	drawMountainColumnShaded(img, w, h, x, baseline, heights, maxAlt, grad, texSeed, shade)
+func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol, maxAlt float64, grad gfx.Gradient, texSeed, slopeWin int, shade mountainShadeFunc, floor, shore int, water gfx.RGB) {
+	drawMountainColumnShaded(img, w, h, x, baseline, heights, maxAlt, grad, texSeed, slopeWin, shade)
 
 	if dcol > 0 {
-		slope := broadRidgeSlope(heights, x, slopeWindow(maxAlt))
+		slope := broadRidgeSlope(heights, x, slopeWin)
 		base := grad.At(0) // foot color (darkest end of the range gradient)
 		bottom := baseline + int(math.Ceil(dcol))
 		for y := baseline; y <= bottom && y < h && y <= floor; y++ {

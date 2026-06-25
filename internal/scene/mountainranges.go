@@ -163,6 +163,11 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 	}
 	w, h := c.W, c.H
 	shade := mountainShader(c.MountainRugged)
+	// One slope window for every range, from the scene's BASE altitude scale — NOT each
+	// band's height-scaled maxAlt, which would widen the window on the taller near ranges
+	// until it spanned several peaks and the left/right shading washed out (see
+	// slopeWindow). The heightmaps all share the same horizontal peak structure.
+	slopeWin := slopeWindow(mountainHeightMax * float64(c.Settings.HorizonY))
 
 	// Occlusion floor: a rear range's lower contour (foot + bulge) must never dip below
 	// the lower contour of any range in front of it, or a farther ridge would appear
@@ -209,7 +214,7 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 					// silhouette swelling downward near peaks (see drawShadedRangeColumn) —
 					// with the foot clipped to floor[x] so it never shows below a nearer range,
 					// then its reflection mirrored into the water at shore[x].
-					drawShadedRangeColumn(img, w, h, x, b.baseline, b.heights, bandBulge(b, x), b.maxAlt, b.grad, b.texSeed, shade, floor[x], bandShore(b, x), water)
+					drawShadedRangeColumn(img, w, h, x, b.baseline, b.heights, bandBulge(b, x), b.maxAlt, b.grad, b.texSeed, slopeWin, shade, floor[x], bandShore(b, x), water)
 				}
 			})
 			if err := sleep(c.Ctx, per); err != nil {

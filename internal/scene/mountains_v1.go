@@ -111,6 +111,9 @@ func (m *Mountains1) RenderList(c *Context, list SceneList) error {
 	w, h := c.W, c.H
 	horizon := c.Settings.HorizonY
 	shade := mountainShader(c.MountainRugged)
+	// The horizon range's maxAlt is already the scene's base scale, so this is the same
+	// slope window the extra ranges use (see slopeWindow).
+	slopeWin := slopeWindow(mr.maxAlt)
 
 	batch := max(w/mountainsAnimCols, 1)
 	per := mountainsAnimDuration / time.Duration((w+batch-1)/batch)
@@ -122,7 +125,7 @@ func (m *Mountains1) RenderList(c *Context, list SceneList) error {
 		x1 := min(x0+batch, w)
 		c.Canvas.Draw(func(img *image.RGBA) {
 			for x := x0; x < x1; x++ {
-				drawMountainColumnShaded(img, w, h, x, horizon, mr.heights, mr.maxAlt, mr.grad, mr.texSeed, shade)
+				drawMountainColumnShaded(img, w, h, x, horizon, mr.heights, mr.maxAlt, mr.grad, mr.texSeed, slopeWin, shade)
 			}
 		})
 		if err := sleep(c.Ctx, per); err != nil {
