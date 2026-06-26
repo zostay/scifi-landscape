@@ -145,8 +145,9 @@ type MistBase struct {
 	Present bool `yaml:"present"`
 	// FadeUpFrac is how far the mist fades up a range's slopes, as a fraction of the sky.
 	FadeUpFrac float64 `yaml:"fadeUpFrac"`
-	// LowFadeFrac is, at the low vantage, the distance below the nearest range over which
-	// the opaque mist fades back out, as a fraction of the ground height.
+	// LowFadeFrac is the distance over which the opaque mist fades back out below the
+	// mountains where none continues (e.g. over open water, and below the front range at
+	// the low vantage), as a fraction of the ground height.
 	LowFadeFrac float64 `yaml:"lowFadeFrac"`
 	// OceanFadeFrac is how far the mist reaches over open water before fading to nothing,
 	// as a fraction of the scene width.

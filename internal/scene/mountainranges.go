@@ -153,44 +153,36 @@ func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
 		sc.water = c.Ocean.color
 	}
 	// Ground mist appears only when this scene both rolled mist on (globals) and has
-	// foreground ranges. Bake its per-column over-water fade here (it needs the ocean
-	// model, which the renderer must not read).
+	// foreground ranges. Its horizontal extent is derived per range at render time from
+	// each range's own (coastline-bounded) footprint — nothing ocean-specific to bake.
 	if c.Mist.Present && len(bands) > 0 {
 		sc.mist = true
-		sc.oceanFade = mistOceanFade(c, w, h, horizon)
 	}
 	return SceneList{mountainRangesToEntity(bands, sc)}, nil
 }
 
-// mistOceanFade is the per-column factor that fades the mist out over open water: 1
-// over any column that touches land below the horizon (mist clings to the land/
-// mountains), falling off to 0 with horizontal distance from the coast over columns
-// that are open water all the way down. With no ocean it is 1 everywhere.
-func mistOceanFade(c *Context, w, h, horizon int) []float64 {
+// mistBandFade is the per-column horizontal factor for one range's mist band: 1 over
+// every column where the range actually drew a mountain (its coastline-bounded
+// footprint), falling off to 0 with horizontal distance beyond it, so the mist extends
+// a little past the range and then fades away — over the open ocean, or anywhere the
+// range has no mountains. fadeDist is the falloff distance in columns. A range with no
+// mountains (e.g. only open water at its depth) yields all zeros, so no band is drawn.
+func mistBandFade(heights []float64, fadeDist float64) []float64 {
+	w := len(heights)
+	mask := make([]bool, w)
+	for x := range heights {
+		mask[x] = heights[x] > 0
+	}
+	dist := nearestTrueDistance(mask)
 	fade := make([]float64, w)
-	if c.Ocean == nil || !c.Ocean.present {
-		for x := range fade {
-			fade[x] = 1
-		}
-		return fade
-	}
-	land := make([]bool, w)
 	for x := range w {
-		for y := horizon + 1; y < h; y++ {
-			if c.LandAt(x, y) { // any land in the column anchors the mist
-				land[x] = true
-				break
-			}
-		}
-	}
-	dist := nearestTrueDistance(land) // columns from each column to the nearest land column
-	fadeDist := math.Max(c.Mist.OceanFadeFrac*float64(w), 1)
-	for x := range w {
-		if land[x] {
+		if mask[x] {
 			fade[x] = 1
 			continue
 		}
-		fade[x] = clamp(1-float64(dist[x])/fadeDist, 0, 1)
+		if fadeDist > 0 {
+			fade[x] = clamp(1-float64(dist[x])/fadeDist, 0, 1)
+		}
 	}
 	return fade
 }
@@ -291,16 +283,27 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 	// just below the range from a low one.
 	horizon := c.Settings.HorizonY
 	var mistColor gfx.RGB
-	fadeUpH := 0
+	var mountainFloor []int
+	fadeUpH, landFadeH := 0, 0
+	fadeDist := 0.0
 	// Each mist band animates over an equal share of the total mist time (one band per
 	// range plus the horizon range's band).
 	mistDur := mistAnimDuration / time.Duration(len(bands)+1)
 	if sc.mist {
 		mistColor = c.SkyGradient.At(0).RGB()
 		fadeUpH = max(int(c.Mist.FadeUpFrac*float64(horizon)), 1)
+		landFadeH = max(int(c.Mist.LowFadeFrac*float64(h-horizon)), 1)
+		fadeDist = c.Mist.OceanFadeFrac * float64(w)
+		// The deepest row any range reaches at each column (across all ranges), so the
+		// opaque mist holds down to the mountains and then fades out below them where
+		// there is none — e.g. over the open ocean beneath an island — instead of running
+		// solid to the next range / the bottom. Dilated horizontally by the fade distance
+		// so small ridge valleys do not punch holes in the fog.
+		mountainFloor = mistMountainFloor(bands, w, h, horizon, int(fadeDist))
 		// The horizon range (already painted, its foot at the horizon) gets the first
-		// band, opaque down to the first extra range's foot.
-		if err := drawMistBand(c, mistColor, sc.oceanFade, horizon, bands[0].baseline, bands[0].baseline, fadeUpH, mistDur); err != nil {
+		// band, opaque down to the first extra range's foot. It has no heightmap of its
+		// own here, so it borrows the nearest extra range's footprint for its extent.
+		if err := drawMistBand(c, mistColor, mistBandFade(bands[0].heights, fadeDist), mountainFloor, horizon, bands[0].baseline, landFadeH, fadeUpH, mistDur); err != nil {
 			return err
 		}
 	}
@@ -333,17 +336,16 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 			if err := c.Ctx.Err(); err != nil {
 				return err
 			}
-			opaqueEnd, fadeEnd := b.baseline, b.baseline
-			switch {
-			case i < len(bands)-1: // opaque down to the next range's foot
-				opaqueEnd, fadeEnd = bands[i+1].baseline, bands[i+1].baseline
-			case c.Height == Low: // front range: fade back out below it (mist near the mountains)
-				lowFadeH := max(int(c.Mist.LowFadeFrac*float64(h-horizon)), 1)
-				opaqueEnd, fadeEnd = b.baseline+lowFadeH/4, b.baseline+lowFadeH
-			default: // high vantage: opaque to the bottom, obscuring the ground
-				opaqueEnd, fadeEnd = h-1, h-1
+			// The band would fill opaque down to the next range's foot (or, for the front
+			// range, the bottom of the scene). The per-column mountain floor then pulls it
+			// up wherever no mountain actually reaches that far — so over land it stays
+			// solid to the next range / the bottom, and over ocean it fades out under the
+			// mountains.
+			opaqueEnd := h - 1
+			if i < len(bands)-1 {
+				opaqueEnd = bands[i+1].baseline
 			}
-			if err := drawMistBand(c, mistColor, sc.oceanFade, b.baseline, opaqueEnd, fadeEnd, fadeUpH, mistDur); err != nil {
+			if err := drawMistBand(c, mistColor, mistBandFade(b.heights, fadeDist), mountainFloor, b.baseline, opaqueEnd, landFadeH, fadeUpH, mistDur); err != nil {
 				return err
 			}
 		}
@@ -351,34 +353,114 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 	return nil
 }
 
+// mistMountainFloor returns, per column, the deepest row any range reaches there (its
+// foot, baseline + bulge), across all ranges — clamped to the bottom edge and to no
+// shallower than the horizon. Columns no range covers stay at the horizon. The result
+// is then dilated horizontally by `dilate` columns (a max filter) so a narrow ridge
+// valley — or a column just off the edge of a range — still counts as covered, letting
+// the fog hold together over the mountains and reach a little past them.
+func mistMountainFloor(bands []mountainRangeBand, w, h, horizon, dilate int) []int {
+	raw := make([]int, w)
+	for x := range raw {
+		raw[x] = horizon
+	}
+	for _, b := range bands {
+		for x := range w {
+			if b.heights[x] > 0 {
+				if foot := b.baseline + int(math.Ceil(bandBulge(b, x))); foot > raw[x] {
+					raw[x] = foot
+				}
+			}
+		}
+	}
+	for x := range raw {
+		if raw[x] > h-1 {
+			raw[x] = h - 1
+		}
+	}
+	if dilate <= 0 {
+		return raw
+	}
+	out := make([]int, w)
+	for x := range w {
+		lo, hi := max(x-dilate, 0), min(x+dilate, w-1)
+		m := raw[x]
+		for i := lo; i <= hi; i++ {
+			if raw[i] > m {
+				m = raw[i]
+			}
+		}
+		out[x] = m
+	}
+	return out
+}
+
 // drawMistBand paints one horizontal band of ground mist (color, an atmospheric haze)
-// over the canvas: opaque from base down to opaqueEnd, fading to nothing by fadeEnd,
-// and fading up over fadeUpH rows above base so a range's peaks emerge from the fog.
-// Each column is scaled by oceanFade so the mist thins out over open water. It animates
-// the band in over dur, drawing its rows most-opaque first so the fog fills from its
-// solid core out to its transparent edges. Returns ctx.Err() if cancelled.
-func drawMistBand(c *Context, color gfx.RGB, oceanFade []float64, base, opaqueEnd, fadeEnd, fadeUpH int, dur time.Duration) error {
+// over the canvas. Per column it is opaque from base down to that column's opaque floor
+// — the lesser of opaqueEnd and the mountain floor there — fading to nothing over the
+// next landFadeH rows, and fading up over fadeUpH rows above base so a range's peaks
+// emerge from the fog. So the mist holds solid only where a mountain actually reaches,
+// and dissolves below the mountains over open water. Each column is also scaled by the
+// per-range horizontal fade (see mistBandFade) so the band hugs that range's footprint.
+// It animates the band in over dur, drawing its rows most-opaque first so the fog fills
+// from its solid core out to its transparent edges. Returns ctx.Err() if cancelled.
+func drawMistBand(c *Context, color gfx.RGB, fade []float64, mountainFloor []int, base, opaqueEnd, landFadeH, fadeUpH int, dur time.Duration) error {
 	w, h := c.W, c.H
-	top := max(base-fadeUpH, 0)
-	bottom := min(fadeEnd, h-1)
+	// Per-column opaque floor and the row each column's fade reaches.
+	floorY := make([]int, w)
+	top, bottom := max(base-fadeUpH, 0), base
+	for x := range w {
+		fl := min(opaqueEnd, max(base, columnMountainFloor(mountainFloor, x)))
+		floorY[x] = fl
+		if fl+landFadeH > bottom {
+			bottom = fl + landFadeH
+		}
+	}
+	bottom = min(bottom, h-1)
 	if bottom < top {
 		return nil
 	}
+	// op is the mist opacity at (x, y): the vertical profile (fade up, opaque to the
+	// column's floor, fade down) scaled by the column's horizontal fade.
+	op := func(x, y int) float64 {
+		var a float64
+		switch fl := floorY[x]; {
+		case y < base:
+			if fadeUpH > 0 {
+				a = clamp(float64(y-(base-fadeUpH))/float64(fadeUpH), 0, 1)
+			}
+		case y <= fl:
+			a = 1
+		case landFadeH > 0 && y <= fl+landFadeH:
+			a = clamp(1-float64(y-fl)/float64(landFadeH), 0, 1)
+		}
+		if x < len(fade) {
+			a *= fade[x]
+		}
+		return a
+	}
+
 	type mistRow struct {
-		y  int
-		op float64
+		y     int
+		maxOp float64
 	}
 	rows := make([]mistRow, 0, bottom-top+1)
 	for y := top; y <= bottom; y++ {
-		if op := mistRowOpacity(y, base, opaqueEnd, fadeEnd, fadeUpH); op > 0 {
-			rows = append(rows, mistRow{y, op})
+		var mo float64
+		for x := range w {
+			if o := op(x, y); o > mo {
+				mo = o
+			}
+		}
+		if mo > 0 {
+			rows = append(rows, mistRow{y, mo})
 		}
 	}
 	if len(rows) == 0 {
 		return nil
 	}
-	// Opaque rows first, transparent edges last (stable, so each opacity keeps row order).
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].op > rows[j].op })
+	// Most-opaque rows first, transparent edges last (stable, so equal rows keep order).
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].maxOp > rows[j].maxOp })
 
 	batchN := max(len(rows)/mistAnimSteps, 1)
 	steps := (len(rows) + batchN - 1) / batchN
@@ -391,14 +473,9 @@ func drawMistBand(c *Context, color gfx.RGB, oceanFade []float64, base, opaqueEn
 		c.Canvas.Draw(func(img *image.RGBA) {
 			for _, r := range rows[i0:i1] {
 				for x := range w {
-					a := r.op
-					if x < len(oceanFade) {
-						a *= oceanFade[x]
+					if a := op(x, r.y); a > 0 {
+						blendPixel(img, w, h, x, r.y, color, a)
 					}
-					if a <= 0 {
-						continue
-					}
-					blendPixel(img, w, h, x, r.y, color, a)
 				}
 			}
 		})
@@ -409,26 +486,13 @@ func drawMistBand(c *Context, color gfx.RGB, oceanFade []float64, base, opaqueEn
 	return nil
 }
 
-// mistRowOpacity is the mist opacity at row y: ramping up from 0 to 1 over the fadeUpH
-// rows above base, fully opaque from base to opaqueEnd, then ramping back to 0 by
-// fadeEnd. Outside [base-fadeUpH, fadeEnd] it is 0.
-func mistRowOpacity(y, base, opaqueEnd, fadeEnd, fadeUpH int) float64 {
-	switch {
-	case y < base:
-		if fadeUpH <= 0 {
-			return 0
-		}
-		return clamp(float64(y-(base-fadeUpH))/float64(fadeUpH), 0, 1)
-	case y <= opaqueEnd:
-		return 1
-	case y <= fadeEnd:
-		if fadeEnd <= opaqueEnd {
-			return 0
-		}
-		return clamp(1-float64(y-opaqueEnd)/float64(fadeEnd-opaqueEnd), 0, 1)
-	default:
-		return 0
+// columnMountainFloor reads the mountain floor at column x, treating a missing slice
+// (e.g. a no-mist path) as "unbounded" so the caller's opaqueEnd governs.
+func columnMountainFloor(mountainFloor []int, x int) int {
+	if x < len(mountainFloor) {
+		return mountainFloor[x]
 	}
+	return 1 << 30
 }
 
 // bandBulge is the foot-bulge depth (px) for column x of a band: the baked, shoreline-

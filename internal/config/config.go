@@ -225,18 +225,20 @@ type MountainConfig struct {
 
 // MistConfig parameterizes the ground mist that can settle among the extra mountain
 // ranges. Mist is an atmospheric-haze-colored fog drawn after each range: a band that
-// is fully opaque from a range's foot down to the next range's clip line and fades up
-// over the range's lower slopes, so peaks emerge from the fog. From a high vantage the
-// opaque band reaches the bottom of the scene (the ground vanishes into haze); from a
-// low vantage it fades out below the nearest range so the near ground shows. Where
-// there is an ocean the mist fades out across the open water away from the coast.
+// is opaque from a range's foot down to wherever the mountains actually reach and fades
+// up over the range's lower slopes, so peaks emerge from the fog. The opaque fog holds
+// down to the deepest mountain at each column and then fades out below it — so over land
+// it reaches the bottom of the scene (the ground vanishes into haze) and over water it
+// dissolves beneath the mountains. Horizontally each band hugs its own range's footprint
+// and fades out across the open water beyond it.
 //
 //   - Chance — probability the mist is present (it still needs foreground mountains).
 //   - FadeUpFrac — how far the mist fades up a range's slopes, as a fraction of the sky.
-//   - LowFadeFrac — at the low vantage, the distance below the nearest range over which
-//     the opaque mist fades back out, as a fraction of the ground height.
-//   - OceanFadeFrac — how far the mist reaches over open water before fading to nothing,
-//     as a fraction of the scene width.
+//   - LowFadeFrac — the distance over which the opaque mist fades back out below the
+//     mountains (where no mountain continues, e.g. over open water, and below the front
+//     range at the low vantage), as a fraction of the ground height.
+//   - OceanFadeFrac — how far the mist reaches horizontally past a range before fading to
+//     nothing, as a fraction of the scene width.
 type MistConfig struct {
 	Chance        float64 `yaml:"chance"`
 	FadeUpFrac    float64 `yaml:"fadeUpFrac"`

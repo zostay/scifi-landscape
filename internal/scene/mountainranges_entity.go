@@ -23,13 +23,11 @@ func init() {
 // (the slice is ordered far→near, so later ranges occlude earlier ones). WaterColor is
 // the scene's ocean tint (zero when there is no ocean), used to tint each range's
 // reflection where its foot meets water. Mist, when set, draws the ground fog among
-// the ranges; MistOceanFade is the per-column over-water fade factor for it (1 over
-// land, fading to 0 across open water), baked here so RenderList stays seed-independent.
+// the ranges (its horizontal extent is derived per range from each range's heightmap).
 type MountainRangesV0 struct {
-	Ranges        []MountainRangeBandV0 `yaml:"ranges"`
-	WaterColor    gfx.RGB               `yaml:"waterColor,omitempty"`
-	Mist          bool                  `yaml:"mist,omitempty"`
-	MistOceanFade []float64             `yaml:"mistOceanFade,omitempty"`
+	Ranges     []MountainRangeBandV0 `yaml:"ranges"`
+	WaterColor gfx.RGB               `yaml:"waterColor,omitempty"`
+	Mist       bool                  `yaml:"mist,omitempty"`
 }
 
 func (*MountainRangesV0) EntitySchema() string { return SchemaMountainRangesV0 }
@@ -70,12 +68,10 @@ type mountainRangeBand struct {
 }
 
 // rangesScene is the scene-level (non-per-range) data carried with the ranges: the
-// water color used to tint reflections, and the resolved mist (present + the baked
-// per-column over-water fade).
+// water color used to tint reflections, and whether the ground mist is present.
 type rangesScene struct {
-	water     gfx.RGB
-	mist      bool
-	oceanFade []float64
+	water gfx.RGB
+	mist  bool
 }
 
 // mountainRangesToEntity converts the internal resolved ranges and the scene-level
@@ -83,10 +79,9 @@ type rangesScene struct {
 // RenderList reads is carried.
 func mountainRangesToEntity(bands []mountainRangeBand, sc rangesScene) Entity {
 	out := &MountainRangesV0{
-		Ranges:        make([]MountainRangeBandV0, len(bands)),
-		WaterColor:    sc.water,
-		Mist:          sc.mist,
-		MistOceanFade: sc.oceanFade,
+		Ranges:     make([]MountainRangeBandV0, len(bands)),
+		WaterColor: sc.water,
+		Mist:       sc.mist,
 	}
 	for i, b := range bands {
 		out.Ranges[i] = MountainRangeBandV0{
@@ -122,5 +117,5 @@ func entityToMountainRanges(e Entity) ([]mountainRangeBand, rangesScene, error) 
 			shore:    b.Shore,
 		}
 	}
-	return bands, rangesScene{water: v.WaterColor, mist: v.Mist, oceanFade: v.MistOceanFade}, nil
+	return bands, rangesScene{water: v.WaterColor, mist: v.Mist}, nil
 }

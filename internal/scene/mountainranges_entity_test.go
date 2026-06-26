@@ -262,60 +262,76 @@ func TestNearestTrueDistance(t *testing.T) {
 	}
 }
 
-// TestMistBaking proves the mist is baked on only when the scene rolled it and has
-// ranges, and that its per-column ocean fade is full over land and falls off over open
-// water — so the renderer (which cannot read the ocean) reproduces it.
-func TestMistBaking(t *testing.T) {
+// TestMistPresence proves the mist flag is set only when the scene rolled it on (and
+// has ranges).
+func TestMistPresence(t *testing.T) {
 	const w, h = 480, 270
-
-	// An ocean seed: build the same ocean the scene would.
-	var seed int64 = -1
-	for s := int64(1); s <= 80; s++ {
-		oc := buildOcean(deriveRng(s, "water"), NewSettings(s, "", h), h)
-		if oc.present {
-			seed = s
-			break
-		}
-	}
-	if seed < 0 {
-		t.Fatal("no ocean seed found")
-	}
-	oc := buildOcean(deriveRng(seed, "water"), NewSettings(seed, "", h), h)
-
-	mist := MistBase{Present: true, FadeUpFrac: 0.08, LowFadeFrac: 0.25, OceanFadeFrac: 0.10}
-
-	// Mist on + ranges + ocean → baked on with a land/water fade.
-	c := mountainRangesTestContext(seed, w, h, testRangeBase, oc)
-	c.Mist = mist
+	c := mountainRangesTestContext(7, w, h, testRangeBase, nil)
+	c.Mist = MistBase{Present: true, FadeUpFrac: 0.08, OceanFadeFrac: 0.10}
 	list, err := (&MountainRanges{}).Generate(c)
 	if err != nil || len(list) == 0 {
 		t.Fatalf("generate: %v (n=%d)", err, len(list))
 	}
-	e := list[0].(*MountainRangesV0)
-	if !e.Mist {
-		t.Fatal("mist not baked on for a mist scene with ranges and ocean")
-	}
-	if len(e.MistOceanFade) != w {
-		t.Fatalf("ocean fade length %d, want %d", len(e.MistOceanFade), w)
-	}
-	var full, faded int
-	for _, f := range e.MistOceanFade {
-		switch {
-		case f >= 0.999:
-			full++
-		case f < 0.5:
-			faded++
-		}
-	}
-	if full == 0 || faded == 0 {
-		t.Errorf("expected both land (full=%d) and open-water (faded=%d) columns", full, faded)
+	if !list[0].(*MountainRangesV0).Mist {
+		t.Error("mist not set for a mist scene with ranges")
 	}
 
-	// Mist not rolled → off.
-	c2 := mountainRangesTestContext(seed, w, h, testRangeBase, oc)
+	c2 := mountainRangesTestContext(7, w, h, testRangeBase, nil)
 	c2.Mist = MistBase{Present: false}
 	list2, _ := (&MountainRanges{}).Generate(c2)
-	if e2 := list2[0].(*MountainRangesV0); e2.Mist {
-		t.Error("mist baked on when not rolled")
+	if list2[0].(*MountainRangesV0).Mist {
+		t.Error("mist set when not rolled")
+	}
+}
+
+// TestMistBandFade proves a range's mist extent is full over its footprint (where it
+// drew a mountain), extends a little past it, and is gone over the empty/open-water
+// columns beyond — and that a range with no mountains casts no mist at all.
+func TestMistBandFade(t *testing.T) {
+	// Mountains in the middle [40,60), open water/empty on both sides.
+	heights := make([]float64, 100)
+	for x := 40; x < 60; x++ {
+		heights[x] = 10
+	}
+	fade := mistBandFade(heights, 10) // falloff over 10 columns
+	if fade[50] != 1 {
+		t.Errorf("over the footprint: fade[50] = %v, want 1", fade[50])
+	}
+	if fade[63] <= 0 || fade[63] >= 1 {
+		t.Errorf("just past the footprint: fade[63] = %v, want a partial value", fade[63])
+	}
+	if fade[0] != 0 || fade[99] != 0 {
+		t.Errorf("far from the footprint: fade[0]=%v fade[99]=%v, want 0", fade[0], fade[99])
+	}
+
+	// No mountains at all → no mist anywhere.
+	empty := mistBandFade(make([]float64, 100), 10)
+	for x, f := range empty {
+		if f != 0 {
+			t.Fatalf("empty range still casts mist at %d: %v", x, f)
+		}
+	}
+}
+
+// TestMistMountainFloor proves the per-column mist floor is the deepest mountain foot
+// at each column, the horizon where no range reaches, and dilated horizontally so a
+// column just off a range's edge still counts as covered.
+func TestMistMountainFloor(t *testing.T) {
+	const w, h, horizon = 100, 200, 20
+	heights := make([]float64, w)
+	for x := 40; x < 60; x++ {
+		heights[x] = 10
+	}
+	b := mountainRangeBand{baseline: 100, heights: heights, bulges: make([]float64, w)}
+	floor := mistMountainFloor([]mountainRangeBand{b}, w, h, horizon, 5)
+
+	if floor[50] != 100 {
+		t.Errorf("over the mountain: floor[50] = %d, want 100", floor[50])
+	}
+	if floor[37] != 100 { // within the 5-column dilation of the footprint edge (40)
+		t.Errorf("within dilation: floor[37] = %d, want 100", floor[37])
+	}
+	if floor[0] != horizon || floor[99] != horizon {
+		t.Errorf("far from any range: floor[0]=%d floor[99]=%d, want %d", floor[0], floor[99], horizon)
 	}
 }
