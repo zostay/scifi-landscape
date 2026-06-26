@@ -208,11 +208,15 @@ const (
 	// sampling the just-drawn mountain and tinting it toward the water color — more
 	// tinted, darker, and fainter with depth, mimicking the water's own fresnel.
 	reflectShoreExtraFrac = 0.05
-	reflectAlpha          = 0.5  // reflection opacity at the waterline
-	reflectFade           = 0.55 // how much the opacity drops by the deepest reflected row
-	reflectTintMin        = 0.30 // water tint at the waterline
-	reflectTintMax        = 0.70 // water tint at the deepest reflected row
-	reflectDark           = 0.30 // darkening at the deepest reflected row
+	// minReflectFrac is the smallest peak (as a fraction of the sky) that casts a
+	// reflection. Shorter columns draw no visible peak — only the thin flat foot — so
+	// reflecting them just darkens stray patches of water into "dashes" with no mountain
+	// above; this gate keeps reflections to mountains you can actually see.
+	minReflectFrac = 0.012
+	reflectAlpha   = 0.5  // reflection opacity at the waterline
+	reflectTintMin = 0.30 // water tint at the waterline
+	reflectTintMax = 0.70 // water tint at the deepest reflected row
+	reflectDark    = 0.30 // darkening at the deepest reflected row
 )
 
 // drawRangeReflection mirrors a range column across its waterline (shore) into the
@@ -248,7 +252,9 @@ func drawRangeReflection(img *image.RGBA, w, h, x, baseline int, heights []float
 			G: (sg + (water.G-sg)*tint) * dark,
 			B: (sb + (water.B-sb)*tint) * dark,
 		}
-		blendPixel(img, w, h, x, yr, out, reflectAlpha*(1-reflectFade*frac))
+		// Fade the opacity all the way to zero at the deepest reflected row, so the
+		// reflection dissolves into the water instead of ending on a hard line.
+		blendPixel(img, w, h, x, yr, out, reflectAlpha*(1-frac)*(1-frac))
 	}
 }
 

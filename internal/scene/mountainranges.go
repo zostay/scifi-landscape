@@ -107,6 +107,7 @@ func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
 		shore := make([]int, w)
 		bulgeSeed := texSeed + bulgeSeedOffset
 		searchExtra := int(reflectShoreExtraFrac * sky)
+		minReflect := minReflectFrac * sky // only peaks this tall cast a reflection
 		for x := range w {
 			d := footBulgeDepth(hmap[x], bandMaxAlt, x, bulgeSeed)
 			if d > 0 && hasOcean {
@@ -114,7 +115,9 @@ func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
 				searchTo := min(footRow+searchExtra, h-1)
 				for y := baseline + 1; y <= searchTo; y++ {
 					if !c.LandAt(x, y) { // water in front of the foot
-						shore[x] = y
+						if hmap[x] >= minReflect { // a visible peak: reflect it (no dashes)
+							shore[x] = y
+						}
 						if y <= footRow { // the foot would cross water: clip it back
 							d = math.Max(float64(y-1-baseline), 0)
 						}
