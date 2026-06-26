@@ -465,6 +465,9 @@ func drawMistBand(c *Context, color gfx.RGB, fade []float64, mountainFloor []int
 	batchN := max(len(rows)/mistAnimSteps, 1)
 	steps := (len(rows) + batchN - 1) / batchN
 	per := dur / time.Duration(max(steps, 1))
+	if per <= 0 {
+		per = time.Millisecond
+	}
 	for i0 := 0; i0 < len(rows); i0 += batchN {
 		if err := c.Ctx.Err(); err != nil {
 			return err

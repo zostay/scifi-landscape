@@ -198,7 +198,7 @@ func drawShadedRangeColumn(img *image.RGBA, w, h, x, baseline int, heights []flo
 	}
 
 	if shore > 0 {
-		drawRangeReflection(img, w, h, x, baseline, heights, dcol, shore, water)
+		drawRangeReflection(img, w, h, x, baseline, heights, dcol, floor, shore, water)
 	}
 }
 
@@ -222,12 +222,14 @@ const (
 // drawRangeReflection mirrors a range column across its waterline (shore) into the
 // water below, sampling the mountain pixels just drawn above the line and tinting them
 // toward the water color. The mirror spans the drawn silhouette (peak + foot); above
-// the peak is sky, which the water already reflects, so the mirror stops there. It
-// consumes no randomness.
-func drawRangeReflection(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol float64, shore int, water gfx.RGB) {
-	top := baseline - int(math.Ceil(heights[x])) - 1 // peak top; above it is sky
-	footBottom := baseline + int(math.Ceil(dcol))    // lowest drawn mountain row
-	span := float64(shore - top)                     // mirror extent (mountain above the line)
+// the peak is sky, which the water already reflects, so the mirror stops there. The foot
+// is mirrored only as far as it was actually drawn — clipped to floor, the same
+// occlusion limit the foot drawing used — so an occluded foot does not reflect rows that
+// belong to a nearer range. It consumes no randomness.
+func drawRangeReflection(img *image.RGBA, w, h, x, baseline int, heights []float64, dcol float64, floor, shore int, water gfx.RGB) {
+	top := baseline - int(math.Ceil(heights[x])) - 1        // peak top; above it is sky
+	footBottom := min(baseline+int(math.Ceil(dcol)), floor) // lowest drawn mountain row
+	span := float64(shore - top)                            // mirror extent (mountain above the line)
 	if span <= 0 {
 		return
 	}
