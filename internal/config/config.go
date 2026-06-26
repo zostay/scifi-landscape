@@ -55,6 +55,12 @@ type Config struct {
 	// per-vantage base parameters into the globals). Zero-value callers (the v0
 	// director) leave it empty, which means "no extra ranges".
 	Mountains MountainConfig `yaml:"mountains"`
+
+	// Mist parameterizes the ground mist that can settle among the extra mountain
+	// ranges (drawn by the mountainranges.v0 element). It is read by the scene.v1
+	// director to roll the per-scene mist on or off and resolve its shape. Zero-value
+	// callers (the v0 director) leave it empty, which means "no mist".
+	Mist MistConfig `yaml:"mist"`
 }
 
 // Algorithms lists the versioned registry keys of the algorithms that build a
@@ -217,6 +223,27 @@ type MountainConfig struct {
 	RuggedChance float64 `yaml:"ruggedChance"`
 }
 
+// MistConfig parameterizes the ground mist that can settle among the extra mountain
+// ranges. Mist is an atmospheric-haze-colored fog drawn after each range: a band that
+// is fully opaque from a range's foot down to the next range's clip line and fades up
+// over the range's lower slopes, so peaks emerge from the fog. From a high vantage the
+// opaque band reaches the bottom of the scene (the ground vanishes into haze); from a
+// low vantage it fades out below the nearest range so the near ground shows. Where
+// there is an ocean the mist fades out across the open water away from the coast.
+//
+//   - Chance — probability the mist is present (it still needs foreground mountains).
+//   - FadeUpFrac — how far the mist fades up a range's slopes, as a fraction of the sky.
+//   - LowFadeFrac — at the low vantage, the distance below the nearest range over which
+//     the opaque mist fades back out, as a fraction of the ground height.
+//   - OceanFadeFrac — how far the mist reaches over open water before fading to nothing,
+//     as a fraction of the scene width.
+type MistConfig struct {
+	Chance        float64 `yaml:"chance"`
+	FadeUpFrac    float64 `yaml:"fadeUpFrac"`
+	LowFadeFrac   float64 `yaml:"lowFadeFrac"`
+	OceanFadeFrac float64 `yaml:"oceanFadeFrac"`
+}
+
 // pipelineElements is the scene's element order as versioned algorithm keys,
 // used as the default Generator and Renderer key list (these resolve against the
 // scene package's generator/renderer registries). Directors default to the single
@@ -279,6 +306,12 @@ func DefaultConfig() Config {
 			SmoothnessStd:    0.05,  // only a slight spread in jaggedness
 			BaselineJitter:   0.008, // feet spaced near-evenly, just off the grid
 			RuggedChance:     0.15,  // mostly soft conical; the occasional craggier range
+		},
+		Mist: MistConfig{
+			Chance:        1.0,  // always, whenever a scene has foreground mountains
+			FadeUpFrac:    0.08, // the mist fades up ~8% of the sky over each range's slopes
+			LowFadeFrac:   0.25, // low view: opaque mist fades out over ~25% of the ground
+			OceanFadeFrac: 0.10, // mist reaches ~10% of the width over open water, then gone
 		},
 	}
 }

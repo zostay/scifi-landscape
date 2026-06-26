@@ -22,10 +22,14 @@ func init() {
 // MountainRangesV0 is the resolved set of extra mountain ranges, drawn back-to-front
 // (the slice is ordered far→near, so later ranges occlude earlier ones). WaterColor is
 // the scene's ocean tint (zero when there is no ocean), used to tint each range's
-// reflection where its foot meets water.
+// reflection where its foot meets water. Mist, when set, draws the ground fog among
+// the ranges; MistOceanFade is the per-column over-water fade factor for it (1 over
+// land, fading to 0 across open water), baked here so RenderList stays seed-independent.
 type MountainRangesV0 struct {
-	Ranges     []MountainRangeBandV0 `yaml:"ranges"`
-	WaterColor gfx.RGB               `yaml:"waterColor,omitempty"`
+	Ranges        []MountainRangeBandV0 `yaml:"ranges"`
+	WaterColor    gfx.RGB               `yaml:"waterColor,omitempty"`
+	Mist          bool                  `yaml:"mist,omitempty"`
+	MistOceanFade []float64             `yaml:"mistOceanFade,omitempty"`
 }
 
 func (*MountainRangesV0) EntitySchema() string { return SchemaMountainRangesV0 }
@@ -65,11 +69,25 @@ type mountainRangeBand struct {
 	shore    []int
 }
 
-// mountainRangesToEntity converts the internal resolved ranges (and the scene water
-// color) into their frozen entity schema. The conversion is lossless: every field
+// rangesScene is the scene-level (non-per-range) data carried with the ranges: the
+// water color used to tint reflections, and the resolved mist (present + the baked
+// per-column over-water fade).
+type rangesScene struct {
+	water     gfx.RGB
+	mist      bool
+	oceanFade []float64
+}
+
+// mountainRangesToEntity converts the internal resolved ranges and the scene-level
+// data into their frozen entity schema. The conversion is lossless: every field
 // RenderList reads is carried.
-func mountainRangesToEntity(bands []mountainRangeBand, water gfx.RGB) Entity {
-	out := &MountainRangesV0{Ranges: make([]MountainRangeBandV0, len(bands)), WaterColor: water}
+func mountainRangesToEntity(bands []mountainRangeBand, sc rangesScene) Entity {
+	out := &MountainRangesV0{
+		Ranges:        make([]MountainRangeBandV0, len(bands)),
+		WaterColor:    sc.water,
+		Mist:          sc.mist,
+		MistOceanFade: sc.oceanFade,
+	}
 	for i, b := range bands {
 		out.Ranges[i] = MountainRangeBandV0{
 			Baseline: b.baseline,
@@ -84,13 +102,13 @@ func mountainRangesToEntity(bands []mountainRangeBand, water gfx.RGB) Entity {
 	return out
 }
 
-// entityToMountainRanges reconstructs the internal ranges and the scene water color
-// from an entity, the inverse of mountainRangesToEntity. It errors if e is not a
-// mountain-ranges entity.
-func entityToMountainRanges(e Entity) ([]mountainRangeBand, gfx.RGB, error) {
+// entityToMountainRanges reconstructs the internal ranges and scene-level data from an
+// entity, the inverse of mountainRangesToEntity. It errors if e is not a mountain-
+// ranges entity.
+func entityToMountainRanges(e Entity) ([]mountainRangeBand, rangesScene, error) {
 	v, ok := e.(*MountainRangesV0)
 	if !ok {
-		return nil, gfx.RGB{}, fmt.Errorf("scene: entity %T is not extra mountain ranges", e)
+		return nil, rangesScene{}, fmt.Errorf("scene: entity %T is not extra mountain ranges", e)
 	}
 	bands := make([]mountainRangeBand, len(v.Ranges))
 	for i, b := range v.Ranges {
@@ -104,5 +122,5 @@ func entityToMountainRanges(e Entity) ([]mountainRangeBand, gfx.RGB, error) {
 			shore:    b.Shore,
 		}
 	}
-	return bands, v.WaterColor, nil
+	return bands, rangesScene{water: v.WaterColor, mist: v.Mist, oceanFade: v.MistOceanFade}, nil
 }

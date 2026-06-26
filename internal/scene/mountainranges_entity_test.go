@@ -249,3 +249,73 @@ func floatsEqual(a, b []float64) bool {
 	}
 	return true
 }
+
+// TestNearestTrueDistance checks the column-distance-to-nearest-land helper used to
+// fade the mist out over open water.
+func TestNearestTrueDistance(t *testing.T) {
+	got := nearestTrueDistance([]bool{true, false, false, true, false})
+	want := []int{0, 1, 1, 0, 1}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("dist[%d] = %d, want %d", i, got[i], want[i])
+		}
+	}
+}
+
+// TestMistBaking proves the mist is baked on only when the scene rolled it and has
+// ranges, and that its per-column ocean fade is full over land and falls off over open
+// water — so the renderer (which cannot read the ocean) reproduces it.
+func TestMistBaking(t *testing.T) {
+	const w, h = 480, 270
+
+	// An ocean seed: build the same ocean the scene would.
+	var seed int64 = -1
+	for s := int64(1); s <= 80; s++ {
+		oc := buildOcean(deriveRng(s, "water"), NewSettings(s, "", h), h)
+		if oc.present {
+			seed = s
+			break
+		}
+	}
+	if seed < 0 {
+		t.Fatal("no ocean seed found")
+	}
+	oc := buildOcean(deriveRng(seed, "water"), NewSettings(seed, "", h), h)
+
+	mist := MistBase{Present: true, FadeUpFrac: 0.08, LowFadeFrac: 0.25, OceanFadeFrac: 0.10}
+
+	// Mist on + ranges + ocean → baked on with a land/water fade.
+	c := mountainRangesTestContext(seed, w, h, testRangeBase, oc)
+	c.Mist = mist
+	list, err := (&MountainRanges{}).Generate(c)
+	if err != nil || len(list) == 0 {
+		t.Fatalf("generate: %v (n=%d)", err, len(list))
+	}
+	e := list[0].(*MountainRangesV0)
+	if !e.Mist {
+		t.Fatal("mist not baked on for a mist scene with ranges and ocean")
+	}
+	if len(e.MistOceanFade) != w {
+		t.Fatalf("ocean fade length %d, want %d", len(e.MistOceanFade), w)
+	}
+	var full, faded int
+	for _, f := range e.MistOceanFade {
+		switch {
+		case f >= 0.999:
+			full++
+		case f < 0.5:
+			faded++
+		}
+	}
+	if full == 0 || faded == 0 {
+		t.Errorf("expected both land (full=%d) and open-water (faded=%d) columns", full, faded)
+	}
+
+	// Mist not rolled → off.
+	c2 := mountainRangesTestContext(seed, w, h, testRangeBase, oc)
+	c2.Mist = MistBase{Present: false}
+	list2, _ := (&MountainRanges{}).Generate(c2)
+	if e2 := list2[0].(*MountainRangesV0); e2.Mist {
+		t.Error("mist baked on when not rolled")
+	}
+}

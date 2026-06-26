@@ -62,6 +62,9 @@ type Context struct {
 	// the default soft conical look, true the alternate craggier rugged rock. Read by
 	// the v1 mountain and mountain-range renderers.
 	MountainRugged bool
+	// Mist carries the resolved ground-mist parameters (from the globals); the
+	// mountainranges.v0 element reads it. Its zero value (Present false) means no mist.
+	Mist MistBase
 
 	// Ocean is the scene's resolved ocean/land model, decided up front (like the
 	// gradients) so both Cities and Water can use it: Cities to place buildings
@@ -208,6 +211,7 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.Perspective = g.Perspective
 	sctx.MountainRanges = g.MountainRanges
 	sctx.MountainRugged = g.MountainRugged
+	sctx.Mist = g.Mist
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
 	// to land while Water still reflects the city skyline. For a v1 ocean (a v1 director

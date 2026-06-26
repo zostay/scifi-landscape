@@ -69,6 +69,12 @@ type Globals struct {
 	// scene from MountainConfig.RuggedChance. It applies to both the horizon range and
 	// the extra ranges; its zero value reproduces the default for old globals.
 	MountainRugged bool `yaml:"mountainRugged"`
+
+	// Mist holds the resolved ground-mist parameters (the per-scene presence roll and
+	// the fog's shape). The mountainranges.v0 element reads it; the mist still only
+	// appears when the scene also has foreground ranges. Its zero value (Present false)
+	// means no mist, so old globals and the scene.v0 director reproduce as before.
+	Mist MistBase `yaml:"mist"`
 }
 
 // Perspective is the resolved set of low-mode ("ground-level") ground-plane
@@ -128,6 +134,23 @@ type MountainRangeBase struct {
 	// BaselineJitterFrac jitters each foot row (fraction of the ground height) so the
 	// ranges are not perfectly evenly spaced.
 	BaselineJitterFrac float64 `yaml:"baselineJitterFrac"`
+}
+
+// MistBase is the resolved, scene-wide ground-mist state the mountainranges.v0 element
+// reads. Present is the director's per-scene roll (the mist still needs foreground
+// ranges to actually appear); the fractions shape the fog. Its zero value means no
+// mist.
+type MistBase struct {
+	// Present is whether this scene rolled mist on.
+	Present bool `yaml:"present"`
+	// FadeUpFrac is how far the mist fades up a range's slopes, as a fraction of the sky.
+	FadeUpFrac float64 `yaml:"fadeUpFrac"`
+	// LowFadeFrac is, at the low vantage, the distance below the nearest range over which
+	// the opaque mist fades back out, as a fraction of the ground height.
+	LowFadeFrac float64 `yaml:"lowFadeFrac"`
+	// OceanFadeFrac is how far the mist reaches over open water before fading to nothing,
+	// as a fraction of the scene width.
+	OceanFadeFrac float64 `yaml:"oceanFadeFrac"`
 }
 
 // Marshal serializes the globals to YAML for a scene file's globals.yaml. Globals
@@ -267,7 +290,23 @@ func (d sceneDirectorV1) Direct(cfg config.Config, seed int64, timeOverride stri
 	// Roll the mountain shading style on its own stream so it disturbs no existing
 	// per-element stream; false (soft conical) is the default and zero value.
 	g.MountainRugged = deriveRng(seed, "mountain-style").Float64() < cfg.Mountains.RuggedChance
+	// Roll the ground mist on its own stream; it only renders when the scene also has
+	// foreground ranges (decided in the element).
+	g.Mist = resolveMist(cfg.Mist, seed)
 	return g
+}
+
+// resolveMist rolls the per-scene mist presence on its own stream and carries the
+// fog-shape fractions into the globals. The roll is independent of vantage; how the
+// mist behaves (whole-scene vs near-the-mountains) is decided at render time from the
+// height global.
+func resolveMist(mc config.MistConfig, seed int64) MistBase {
+	return MistBase{
+		Present:       deriveRng(seed, "mist").Float64() < mc.Chance,
+		FadeUpFrac:    mc.FadeUpFrac,
+		LowFadeFrac:   mc.LowFadeFrac,
+		OceanFadeFrac: mc.OceanFadeFrac,
+	}
 }
 
 // resolveMountainRanges turns the mountain config and the rolled height into the
