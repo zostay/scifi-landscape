@@ -89,6 +89,37 @@ func renderOceanV1(c *Context, oc *ocean, p Perspective) error {
 		amp[i] = waterWaveMin + (baseWave*waveNear-waterWaveMin)*d*d
 	}
 
+	// The ground fills the horizon row, so an open-water column would otherwise show
+	// a one-pixel land line between the sea and the sky. Draw the waterline on the
+	// horizon row itself wherever the far water reaches it, so the ocean meets the
+	// sky. It is the calm, distant water: the sky just above the horizon, water-
+	// tinted at the horizon strength, with no ripple (the mirror is glassy there).
+	// Land/coast columns keep their ground at the horizon (elev clears sea level).
+	if horizon >= 1 {
+		c.Canvas.Draw(func(img *image.RGBA) {
+			for x := range w {
+				if oc.elev(x, horizon) > oc.seaLevel {
+					continue
+				}
+				off := img.PixOffset(x, horizon-1) // reflect the sky just above the horizon
+				rr := float64(img.Pix[off]) / 255
+				gg := float64(img.Pix[off+1]) / 255
+				bb := float64(img.Pix[off+2]) / 255
+				out := gfx.RGB{
+					R: rr + (wcol.R-rr)*waterTintHorizon,
+					G: gg + (wcol.G-gg)*waterTintHorizon,
+					B: bb + (wcol.B-bb)*waterTintHorizon,
+				}
+				r8, g8, b8, _ := out.RGBA8()
+				o := img.PixOffset(x, horizon)
+				img.Pix[o] = r8
+				img.Pix[o+1] = g8
+				img.Pix[o+2] = b8
+				img.Pix[o+3] = 255
+			}
+		})
+	}
+
 	bandH := max(groundH/80, 1)
 	per := waterAnimDuration / time.Duration((groundH+bandH-1)/bandH)
 

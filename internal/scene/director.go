@@ -53,6 +53,28 @@ type Globals struct {
 	// live in the globals so a recorded scene reproduces the perspective from the
 	// globals alone, without the config.
 	Perspective Perspective `yaml:"perspective"`
+
+	// MountainRanges holds the resolved base parameters for the extra mountain ranges
+	// (the mountainranges.v0 element): how likely and how many ranges, how far down
+	// the ground their feet may sit, and the mean/σ of the height and smoothness each
+	// range varies around. The director resolves these per vantage (more, deeper
+	// ranges in high mode; a thin strip in low mode). Its zero value means "no extra
+	// ranges", so a globals file predating this field — and the scene.v0 director,
+	// which never sets it — reproduces exactly as before.
+	MountainRanges MountainRangeBase `yaml:"mountainRanges"`
+
+	// MountainRugged selects the mountains' shading style: false (the default and zero
+	// value) is the soft conical, eroded-slope look layered on the horizontal banded
+	// gradient; true is the alternate craggier "rugged" rock. The director rolls it per
+	// scene from MountainConfig.RuggedChance. It applies to both the horizon range and
+	// the extra ranges; its zero value reproduces the default for old globals.
+	MountainRugged bool `yaml:"mountainRugged"`
+
+	// Mist holds the resolved ground-mist parameters (the per-scene presence roll and
+	// the fog's shape). The mountainranges.v0 element reads it; the mist still only
+	// appears when the scene also has foreground ranges. Its zero value (Present false)
+	// means no mist, so old globals and the scene.v0 director reproduce as before.
+	Mist MistBase `yaml:"mist"`
 }
 
 // Perspective is the resolved set of low-mode ("ground-level") ground-plane
@@ -84,6 +106,52 @@ type Perspective struct {
 	WaveNear     float64 `yaml:"waveNear"`
 	WaveOctaves  int     `yaml:"waveOctaves"`
 	CityBandFrac float64 `yaml:"cityBandFrac"`
+}
+
+// MountainRangeBase is the resolved, scene-wide base for the extra mountain ranges
+// the mountainranges.v0 element draws. The director resolves the per-vantage values
+// (Chance, CountMax, BaselineMaxFrac) from the config and the rolled height, and
+// carries the height/smoothness base the element varies each range around. Living in
+// the globals means a recorded scene reproduces the ranges without the config. The
+// zero value (Chance/CountMax 0) means no extra ranges, so the v0 director — which
+// never sets this — is unaffected.
+type MountainRangeBase struct {
+	// Chance is the probability the scene has any extra ranges at all.
+	Chance float64 `yaml:"chance"`
+	// CountMax is the most extra ranges to draw (resolved per vantage); the element
+	// rolls a count in 1..CountMax once the Chance roll passes.
+	CountMax int `yaml:"countMax"`
+	// BaselineMaxFrac is how far below the horizon the nearest range's foot may sit,
+	// as a fraction of the ground height (the feet spread from the horizon to here).
+	BaselineMaxFrac float64 `yaml:"baselineMaxFrac"`
+	// HeightMeanFrac and HeightStdFrac are the mean and σ of a range's peak height as
+	// a fraction of the horizon height in pixels.
+	HeightMeanFrac float64 `yaml:"heightMeanFrac"`
+	HeightStdFrac  float64 `yaml:"heightStdFrac"`
+	// SmoothnessMean and SmoothnessStd are the mean and σ of a range's smoothness.
+	SmoothnessMean float64 `yaml:"smoothnessMean"`
+	SmoothnessStd  float64 `yaml:"smoothnessStd"`
+	// BaselineJitterFrac jitters each foot row (fraction of the ground height) so the
+	// ranges are not perfectly evenly spaced.
+	BaselineJitterFrac float64 `yaml:"baselineJitterFrac"`
+}
+
+// MistBase is the resolved, scene-wide ground-mist state the mountainranges.v0 element
+// reads. Present is the director's per-scene roll (the mist still needs foreground
+// ranges to actually appear); the fractions shape the fog. Its zero value means no
+// mist.
+type MistBase struct {
+	// Present is whether this scene rolled mist on.
+	Present bool `yaml:"present"`
+	// FadeUpFrac is how far the mist fades up a range's slopes, as a fraction of the sky.
+	FadeUpFrac float64 `yaml:"fadeUpFrac"`
+	// LowFadeFrac is the distance over which the opaque mist fades back out below the
+	// mountains where none continues (e.g. over open water, and below the front range at
+	// the low vantage), as a fraction of the ground height.
+	LowFadeFrac float64 `yaml:"lowFadeFrac"`
+	// OceanFadeFrac is how far the mist reaches over open water before fading to nothing,
+	// as a fraction of the scene width.
+	OceanFadeFrac float64 `yaml:"oceanFadeFrac"`
 }
 
 // Marshal serializes the globals to YAML for a scene file's globals.yaml. Globals
@@ -215,7 +283,54 @@ func (d sceneDirectorV1) Direct(cfg config.Config, seed int64, timeOverride stri
 	// only at the low vantage, but the water shore/wave perspective applies in both
 	// (more strongly in low), so water.v1 always has its parameters.
 	g.Perspective = resolvePerspective(cfg.Perspective, g.Settings.Horizon, g.Height)
+	// Resolve the extra mountain ranges' base parameters for the rolled vantage (more,
+	// deeper ranges in high; a thin strip in low). This is purely additive — a fresh
+	// global the mountainranges.v0 element reads — so existing per-element streams and
+	// outputs are undisturbed.
+	g.MountainRanges = resolveMountainRanges(cfg.Mountains, g.Height)
+	// Roll the mountain shading style on its own stream so it disturbs no existing
+	// per-element stream; false (soft conical) is the default and zero value.
+	g.MountainRugged = deriveRng(seed, "mountain-style").Float64() < cfg.Mountains.RuggedChance
+	// Roll the ground mist on its own stream; it only renders when the scene also has
+	// foreground ranges (decided in the element).
+	g.Mist = resolveMist(cfg.Mist, seed)
 	return g
+}
+
+// resolveMist rolls the per-scene mist presence on its own stream and carries the
+// fog-shape fractions into the globals. The roll is independent of vantage; how the
+// mist behaves (whole-scene vs near-the-mountains) is decided at render time from the
+// height global.
+func resolveMist(mc config.MistConfig, seed int64) MistBase {
+	return MistBase{
+		Present:       deriveRng(seed, "mist").Float64() < mc.Chance,
+		FadeUpFrac:    mc.FadeUpFrac,
+		LowFadeFrac:   mc.LowFadeFrac,
+		OceanFadeFrac: mc.OceanFadeFrac,
+	}
+}
+
+// resolveMountainRanges turns the mountain config and the rolled height into the
+// scene-wide base parameters the mountainranges.v0 element reads. The count cap and
+// baseline reach are chosen by vantage — a high, elevated view shows more receding
+// ridgelines spread further down the ground; a ground-level view keeps a range or
+// two pinned in a thin strip at the horizon. The height/smoothness base and the
+// jitter are vantage-independent; the element varies each range around them.
+func resolveMountainRanges(mc config.MountainConfig, height HeightMode) MountainRangeBase {
+	countMax, baselineMax := mc.CountMaxHigh, mc.BaselineFracHigh
+	if height == Low {
+		countMax, baselineMax = mc.CountMaxLow, mc.BaselineFracLow
+	}
+	return MountainRangeBase{
+		Chance:             mc.Chance,
+		CountMax:           countMax,
+		BaselineMaxFrac:    baselineMax,
+		HeightMeanFrac:     mc.HeightFrac,
+		HeightStdFrac:      mc.HeightStd,
+		SmoothnessMean:     mc.Smoothness,
+		SmoothnessStd:      mc.SmoothnessStd,
+		BaselineJitterFrac: mc.BaselineJitter,
+	}
 }
 
 // resolvePerspective turns the perspective config, the scene's horizon, and the

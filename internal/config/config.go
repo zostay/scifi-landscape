@@ -47,6 +47,20 @@ type Config struct {
 	// the v1 ground/cities/water algorithms (to shape the low-mode look). Zero-value
 	// callers (the v0 director) ignore it entirely.
 	Perspective PerspectiveConfig `yaml:"perspective"`
+
+	// Mountains parameterizes the extra mountain ranges (the mountainranges.v0
+	// element) that recede below the horizon behind the city: how likely/how many
+	// per vantage, how far down the ground they reach, and the base height/smoothness
+	// each range varies around. It is read by the scene.v1 director (to resolve the
+	// per-vantage base parameters into the globals). Zero-value callers (the v0
+	// director) leave it empty, which means "no extra ranges".
+	Mountains MountainConfig `yaml:"mountains"`
+
+	// Mist parameterizes the ground mist that can settle among the extra mountain
+	// ranges (drawn by the mountainranges.v0 element). It is read by the scene.v1
+	// director to roll the per-scene mist on or off and resolve its shape. Zero-value
+	// callers (the v0 director) leave it empty, which means "no mist".
+	Mist MistConfig `yaml:"mist"`
 }
 
 // Algorithms lists the versioned registry keys of the algorithms that build a
@@ -170,13 +184,75 @@ type PerspectiveConfig struct {
 	CityBandCap float64 `yaml:"cityBandCap"`
 }
 
+// MountainConfig parameterizes the extra mountain ranges (mountainranges.v0): the
+// receding ridgelines that fill the midground below the horizon range, behind the
+// city. The scene.v1 director resolves the per-vantage values (the *High/*Low
+// pairs and count caps) into the globals; the element then rolls a count and
+// varies each range a little around the base height/smoothness.
+//
+//   - Chance — probability a scene has any extra ranges at all.
+//   - CountMaxHigh / CountMaxLow — the most extra ranges drawn from each vantage
+//     (a high, elevated view shows more receding ridgelines than a ground-level one).
+//   - BaselineFracHigh / BaselineFracLow — how far below the horizon the nearest
+//     range's foot may sit, as a fraction of the ground height. High spreads the
+//     ranges down the ground; low keeps them in a thin strip at the horizon.
+//   - HeightFrac / HeightStd — mean and standard deviation of a range's peak height,
+//     as a fraction of the horizon height in pixels (kept modest so the extra ranges
+//     read as background behind the taller horizon range).
+//   - Smoothness / SmoothnessStd — mean and standard deviation of ridge smoothness
+//     (high = few gentle key points, low = many jagged ones; see mountainHeights).
+//   - BaselineJitter — per-range jitter of the foot row, as a fraction of the ground
+//     height, so the ranges are not perfectly evenly spaced.
+type MountainConfig struct {
+	Chance           float64 `yaml:"chance"`
+	CountMaxHigh     int     `yaml:"countMaxHigh"`
+	CountMaxLow      int     `yaml:"countMaxLow"`
+	BaselineFracHigh float64 `yaml:"baselineFracHigh"`
+	BaselineFracLow  float64 `yaml:"baselineFracLow"`
+	HeightFrac       float64 `yaml:"heightFrac"`
+	HeightStd        float64 `yaml:"heightStd"`
+	Smoothness       float64 `yaml:"smoothness"`
+	SmoothnessStd    float64 `yaml:"smoothnessStd"`
+	BaselineJitter   float64 `yaml:"baselineJitter"`
+
+	// RuggedChance is the probability (in [0,1]) that a scene renders its mountains in
+	// the alternate "rugged" style — a craggier, more broken-rock look — instead of the
+	// default conical (soft, eroded-slope) shading. 0 disables it; 1 forces it. The
+	// scene.v1 director rolls the per-scene style from it, applied to both the horizon
+	// range and the extra ranges.
+	RuggedChance float64 `yaml:"ruggedChance"`
+}
+
+// MistConfig parameterizes the ground mist that can settle among the extra mountain
+// ranges. Mist is an atmospheric-haze-colored fog drawn after each range: a band that
+// is opaque from a range's foot down to wherever the mountains actually reach and fades
+// up over the range's lower slopes, so peaks emerge from the fog. The opaque fog holds
+// down to the deepest mountain at each column and then fades out below it — so over land
+// it reaches the bottom of the scene (the ground vanishes into haze) and over water it
+// dissolves beneath the mountains. Horizontally each band hugs its own range's footprint
+// and fades out across the open water beyond it.
+//
+//   - Chance — probability the mist is present (it still needs foreground mountains).
+//   - FadeUpFrac — how far the mist fades up a range's slopes, as a fraction of the sky.
+//   - LowFadeFrac — the distance over which the opaque mist fades back out below the
+//     mountains (where no mountain continues, e.g. over open water, and below the front
+//     range at the low vantage), as a fraction of the ground height.
+//   - OceanFadeFrac — how far the mist reaches horizontally past a range before fading to
+//     nothing, as a fraction of the scene width.
+type MistConfig struct {
+	Chance        float64 `yaml:"chance"`
+	FadeUpFrac    float64 `yaml:"fadeUpFrac"`
+	LowFadeFrac   float64 `yaml:"lowFadeFrac"`
+	OceanFadeFrac float64 `yaml:"oceanFadeFrac"`
+}
+
 // pipelineElements is the scene's element order as versioned algorithm keys,
 // used as the default Generator and Renderer key list (these resolve against the
 // scene package's generator/renderer registries). Directors default to the single
 // scene director. The keys are part of the on-disk config contract.
 var pipelineElements = []string{
 	"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
-	"clouds.v0", "mountains.v0", "ground.v1", "cities.v1", "water.v1",
+	"clouds.v0", "mountains.v1", "ground.v1", "cities.v1", "water.v1", "mountainranges.v0",
 }
 
 // DefaultConfig returns the complete built-in configuration. Its values mirror
@@ -219,6 +295,25 @@ func DefaultConfig() Config {
 			WaveNearLow:      8.0,   // near waves much larger at ground level
 			WaveOctaves:      4,     // long swells carrying shorter chop
 			CityBandCap:      0.02,  // keep the city pinned almost on the horizon itself
+		},
+		Mountains: MountainConfig{
+			Chance:           0.6,   // most scenes get a few receding ridgelines
+			CountMaxHigh:     10,    // a deep stack of receding ridges from the elevated view
+			CountMaxLow:      2,     // at most a range or two at ground level
+			BaselineFracHigh: 1.10,  // the nearest feet reach the bottom edge (and a touch below)
+			BaselineFracLow:  0.04,  // a thin strip near the horizon at ground level
+			HeightFrac:       0.06,  // mean peak ~6% of the horizon height (below the horizon range)
+			HeightStd:        0.008, // ranges stay close to the standard height
+			Smoothness:       0.6,   // gently rolling on average
+			SmoothnessStd:    0.05,  // only a slight spread in jaggedness
+			BaselineJitter:   0.008, // feet spaced near-evenly, just off the grid
+			RuggedChance:     0.15,  // mostly soft conical; the occasional craggier range
+		},
+		Mist: MistConfig{
+			Chance:        1.0,  // always, whenever a scene has foreground mountains
+			FadeUpFrac:    0.08, // the mist fades up ~8% of the sky over each range's slopes
+			LowFadeFrac:   0.25, // low view: opaque mist fades out over ~25% of the ground
+			OceanFadeFrac: 0.10, // mist reaches ~10% of the width over open water, then gone
 		},
 	}
 }
