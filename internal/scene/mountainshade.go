@@ -235,8 +235,8 @@ func drawRangeReflection(img *image.RGBA, w, h, x, baseline int, heights []float
 	}
 	for yr := shore + 1; yr < h; yr++ {
 		ys := 2*shore - yr // source row above the waterline
-		if ys < top {
-			break // mirrored past the peak into sky
+		if ys < top || ys < 0 {
+			break // mirrored past the peak into sky (or off the top of the canvas)
 		}
 		if ys > footBottom {
 			continue // the small land gap between the foot and the shore: no mountain to mirror
