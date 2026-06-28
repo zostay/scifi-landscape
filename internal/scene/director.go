@@ -75,6 +75,21 @@ type Globals struct {
 	// appears when the scene also has foreground ranges. Its zero value (Present false)
 	// means no mist, so old globals and the scene.v0 director reproduce as before.
 	Mist MistBase `yaml:"mist"`
+
+	// Bushes holds the resolved base parameters for the scattered ground bushes (the
+	// bushes.v0 element): how likely/how many, how their size grows with nearness for
+	// the rolled vantage, and the shape/burial/shading ranges each bush varies within.
+	// The director resolves these per vantage (many small bushes in high; fewer, larger
+	// bushes in low). Its zero value (Chance 0) means no bushes, so a globals file
+	// predating this field — and the scene.v0 director, which never sets it —
+	// reproduces exactly as before.
+	Bushes BushesBase `yaml:"bushes"`
+	// BushGradient is the scene-wide bush color gradient (an independent palette, not the
+	// ground), read by the bushes.v0 renderer: each bush samples one position along it for
+	// its base color. The director derives it; its zero value (an empty gradient) means
+	// bushes fall back to black, but the scene.v0 director never produces bushes so it is
+	// unaffected.
+	BushGradient gfx.Gradient `yaml:"bushGradient,omitempty"`
 }
 
 // Perspective is the resolved set of low-mode ("ground-level") ground-plane
@@ -134,6 +149,42 @@ type MountainRangeBase struct {
 	// BaselineJitterFrac jitters each foot row (fraction of the ground height) so the
 	// ranges are not perfectly evenly spaced.
 	BaselineJitterFrac float64 `yaml:"baselineJitterFrac"`
+}
+
+// BushesBase is the resolved, scene-wide base for the scattered ground bushes the
+// bushes.v0 element draws. The director resolves the per-vantage values (Count,
+// MaxSizeFrac, SizeGamma) from the config and the rolled height, and carries the
+// shape/burial/texture ranges the element varies each bush within. Living in the
+// globals means a recorded scene reproduces the bushes without the config. The zero
+// value (Chance 0) means no bushes, so the v0 director — which never sets this — is
+// unaffected.
+type BushesBase struct {
+	// Chance is the probability the scene has any bushes at all.
+	Chance float64 `yaml:"chance"`
+	// Count is the bush count at the reference width (480px), resolved per vantage;
+	// the element scales it by the actual width (not area).
+	Count int `yaml:"count"`
+	// MinSizeFrac is a far bush's diameter as a fraction of the scene width; MaxSizeFrac
+	// is the nearest bush's diameter (resolved per vantage). SizeGamma is the depth→size
+	// exponent (size grows as nearness^SizeGamma from min to max).
+	MinSizeFrac float64 `yaml:"minSizeFrac"`
+	MaxSizeFrac float64 `yaml:"maxSizeFrac"`
+	SizeGamma   float64 `yaml:"sizeGamma"`
+	// DepthBias warps the uniform depth draw (nearness = u^DepthBias): > 1 pushes bushes
+	// toward the far distance, thinning the near foreground where they grow large.
+	DepthBias float64 `yaml:"depthBias"`
+	// SquashMin/SquashMax bound each bush's minor/major axis ratio (a squashed clump).
+	SquashMin float64 `yaml:"squashMin"`
+	SquashMax float64 `yaml:"squashMax"`
+	// BuryMin/BuryMax bound the fraction of a bush buried below the ground contact line.
+	BuryMin float64 `yaml:"buryMin"`
+	BuryMax float64 `yaml:"buryMax"`
+	// SizeJitter is the per-bush random size variation (± this fraction).
+	SizeJitter float64 `yaml:"sizeJitter"`
+	// Lumpiness is how strongly the elliptical outline is perturbed into a lopsided shape.
+	Lumpiness float64 `yaml:"lumpiness"`
+	// Ambient is the shadow-side fill light for the bush form-shading.
+	Ambient float64 `yaml:"ambient"`
 }
 
 // MistBase is the resolved, scene-wide ground-mist state the mountainranges.v0 element
@@ -294,7 +345,42 @@ func (d sceneDirectorV1) Direct(cfg config.Config, seed int64, timeOverride stri
 	// Roll the ground mist on its own stream; it only renders when the scene also has
 	// foreground ranges (decided in the element).
 	g.Mist = resolveMist(cfg.Mist, seed)
+	// Resolve the bushes' base parameters for the rolled vantage (many small bushes in
+	// high; fewer, larger ones in low). Purely additive — a fresh global the bushes.v0
+	// element reads — so existing per-element streams and outputs are undisturbed.
+	g.Bushes = resolveBushes(cfg.Bushes, g.Height)
+	// Derive the scene's independent bush color gradient on its own stream, so each bush
+	// can sample a base color from it. Independent stream → existing streams undisturbed.
+	g.BushGradient = buildBushGradient(deriveRng(seed, "bush-gradient"), g.Settings.Time)
 	return g
+}
+
+// resolveBushes turns the bushes config and the rolled height into the scene-wide base
+// parameters the bushes.v0 element reads. The count, nearest-bush size, and depth→size
+// exponent are chosen by vantage — a high, elevated view scatters many small bushes; a
+// ground-level view places fewer but much larger bushes nearer the viewer. The
+// shape/burial/texture ranges are vantage-independent; the element varies each bush
+// within them.
+func resolveBushes(rc config.BushesConfig, height HeightMode) BushesBase {
+	count, maxSize, gamma, depthBias := rc.CountHigh, rc.MaxSizeFracHigh, rc.SizeGammaHigh, rc.DepthBiasHigh
+	if height == Low {
+		count, maxSize, gamma, depthBias = rc.CountLow, rc.MaxSizeFracLow, rc.SizeGammaLow, rc.DepthBiasLow
+	}
+	return BushesBase{
+		Chance:      rc.Chance,
+		Count:       count,
+		MinSizeFrac: rc.MinSizeFrac,
+		MaxSizeFrac: maxSize,
+		SizeGamma:   gamma,
+		DepthBias:   depthBias,
+		SquashMin:   rc.SquashMin,
+		SquashMax:   rc.SquashMax,
+		BuryMin:     rc.BuryMin,
+		BuryMax:     rc.BuryMax,
+		SizeJitter:  rc.SizeJitter,
+		Lumpiness:   rc.Lumpiness,
+		Ambient:     rc.Ambient,
+	}
 }
 
 // resolveMist rolls the per-scene mist presence on its own stream and carries the
