@@ -376,9 +376,18 @@ func (m *MountainRanges) RenderList(c *Context, list SceneList) error {
 // mistMountainFloor returns, per column, the deepest row any range reaches there (its
 // foot, baseline + bulge), across all ranges — clamped to the bottom edge and to no
 // shallower than the horizon. Columns no range covers stay at the horizon. The result
-// is then dilated horizontally by `dilate` columns (a max filter) so a narrow ridge
-// valley — or a column just off the edge of a range — still counts as covered, letting
-// the fog hold together over the mountains and reach a little past them.
+// is then dilated horizontally by `dilate` columns so a narrow ridge valley — or a
+// column just off the edge of a range — still counts as covered, letting the fog hold
+// together over the mountains and reach a little past them.
+//
+// The dilation uses a sloped (cone) structuring element rather than a flat one: a deep
+// foot at column i raises the floor at a neighbor by less the farther away it is, so the
+// fog skirt slopes smoothly back up toward the horizon. A flat max-filter instead paints
+// each foot's full depth across the whole ±dilate window, leaving rectangular plateaus
+// whose vertical step edges made the mist read as blocky and artificial over open water
+// (whereas over a range the floor follows the mountain's own rounded foot contour). The
+// cone's slope is set so a foot at the very bottom decays to the horizon in `dilate`
+// columns; shallower feet get correspondingly shorter, gentler skirts.
 func mistMountainFloor(bands []mountainRangeBand, w, h, horizon, dilate int) []int {
 	raw := make([]int, w)
 	for x := range raw {
@@ -401,13 +410,20 @@ func mistMountainFloor(bands []mountainRangeBand, w, h, horizon, dilate int) []i
 	if dilate <= 0 {
 		return raw
 	}
+	// span is the deepest a foot can sit below the horizon; the cone falls this far over
+	// `dilate` columns, so the skirt reaches the horizon right as it fades out sideways.
+	span := max(h-1-horizon, 1)
 	out := make([]int, w)
 	for x := range w {
 		lo, hi := max(x-dilate, 0), min(x+dilate, w-1)
 		m := raw[x]
 		for i := lo; i <= hi; i++ {
-			if raw[i] > m {
-				m = raw[i]
+			d := x - i
+			if d < 0 {
+				d = -d
+			}
+			if v := raw[i] - d*span/dilate; v > m {
+				m = v
 			}
 		}
 		out[x] = m
