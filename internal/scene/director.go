@@ -217,6 +217,11 @@ type SpaceshipsBase struct {
 	// AspectMin/AspectMax bound the hull's height-to-length ratio.
 	AspectMin float64 `yaml:"aspectMin"`
 	AspectMax float64 `yaml:"aspectMax"`
+	// PitchStd/PitchMax parameterize the ship's flight attitude: its long axis is tilted by
+	// N(0, PitchStd) radians, clamped to ±PitchMax, so most ships read level and some ascend
+	// or descend.
+	PitchStd float64 `yaml:"pitchStd"`
+	PitchMax float64 `yaml:"pitchMax"`
 	// MinPlumes/MaxPlumes bound how many drive plumes flare from the ear side.
 	MinPlumes int `yaml:"minPlumes"`
 	MaxPlumes int `yaml:"maxPlumes"`
@@ -431,6 +436,8 @@ func resolveSpaceships(sc config.SpaceshipsConfig) SpaceshipsBase {
 		MaxParts:       sc.MaxParts,
 		AspectMin:      sc.AspectMin,
 		AspectMax:      sc.AspectMax,
+		PitchStd:       sc.PitchStd,
+		PitchMax:       sc.PitchMax,
 		MinPlumes:      sc.MinPlumes,
 		MaxPlumes:      sc.MaxPlumes,
 		PlumeLenFrac:   sc.PlumeLenFrac,

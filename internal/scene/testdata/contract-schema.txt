@@ -97,6 +97,8 @@ config.SpaceshipsConfig/minPlumes int
 config.SpaceshipsConfig/minSizeFrac float64
 config.SpaceshipsConfig/nozzleFlare float64
 config.SpaceshipsConfig/nozzleLenFrac float64
+config.SpaceshipsConfig/pitchMax float64
+config.SpaceshipsConfig/pitchStd float64
 config.SpaceshipsConfig/plumeLenFrac float64
 config.SpaceshipsConfig/plumeWidthFrac float64
 config.SpaceshipsConfig/skyBotFrac float64
@@ -311,6 +313,8 @@ scene.SpaceshipsBase/minPlumes int
 scene.SpaceshipsBase/minSizeFrac float64
 scene.SpaceshipsBase/nozzleFlare float64
 scene.SpaceshipsBase/nozzleLenFrac float64
+scene.SpaceshipsBase/pitchMax float64
+scene.SpaceshipsBase/pitchStd float64
 scene.SpaceshipsBase/plumeLenFrac float64
 scene.SpaceshipsBase/plumeWidthFrac float64
 scene.SpaceshipsBase/skyBotFrac float64

@@ -334,6 +334,11 @@ type BushesConfig struct {
 //     a large ship near MaxParts, so larger craft read as more intricate.
 //   - AspectMin / AspectMax — the hull's height-to-length ratio, drawn in this range
 //     (smaller is a sleeker, more elongated craft).
+//   - PitchStd / PitchMax — the ship's flight attitude: its long axis is tilted by an angle
+//     drawn from a normal distribution (mean 0 = level, standard deviation PitchStd
+//     radians), clamped to ±PitchMax. Most ships read as level, but the tail gives some a
+//     nose-up (ascending) or nose-down (descending) attitude. The drive plumes fire along
+//     this axis, so they angle with the ship.
 //   - MinPlumes / MaxPlumes — how many drive plumes flare from the chosen "ear" side.
 //   - PlumeLenFrac — a plume's length as a fraction of the ship length.
 //   - PlumeWidthFrac — a plume's base half-width as a fraction of the ship height.
@@ -362,6 +367,8 @@ type SpaceshipsConfig struct {
 	MaxParts       int     `yaml:"maxParts"`
 	AspectMin      float64 `yaml:"aspectMin"`
 	AspectMax      float64 `yaml:"aspectMax"`
+	PitchStd       float64 `yaml:"pitchStd"`
+	PitchMax       float64 `yaml:"pitchMax"`
 	MinPlumes      int     `yaml:"minPlumes"`
 	MaxPlumes      int     `yaml:"maxPlumes"`
 	PlumeLenFrac   float64 `yaml:"plumeLenFrac"`
@@ -470,12 +477,14 @@ func DefaultConfig() Config {
 			CountMean:      1.0,  // most scenes have about one ship
 			CountStd:       1.3,  // spread so 0–3 are common, larger fleets increasingly rare
 			CountMax:       10,   // hard ceiling on a fleet
-			MinSizeFrac:    0.06, // a small craft ~6% of the width across
-			MaxSizeFrac:    0.20, // a large craft ~20% of the width across
+			MinSizeFrac:    0.03, // a small craft ~3% of the width across
+			MaxSizeFrac:    0.10, // a large craft ~10% of the width across
 			MinParts:       3,    // small ships: a few shapes
 			MaxParts:       14,   // large ships: many overlaid shapes
 			AspectMin:      0.32, // sleek, elongated hulls
 			AspectMax:      0.55, // chunkier hulls
+			PitchStd:       0.34, // most ships near level (~±20°), tail climbs/dives steeper
+			PitchMax:       1.05, // clamp attitude to ±~60°
 			MinPlumes:      1,    // at least one drive plume
 			MaxPlumes:      4,    // up to a bank of four
 			PlumeLenFrac:   0.9,  // a plume reaches ~90% of the ship length behind it

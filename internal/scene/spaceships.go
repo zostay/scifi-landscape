@@ -142,8 +142,11 @@ func generateShip(rng *rand.Rand, sb SpaceshipsBase, w, horizon int) ship {
 	height := length * aspect
 	halfL, halfH := length/2, height/2
 
-	// Long axis: nearly horizontal with a slight tilt, so the ship reads as banking.
-	orient := rnd(rng, -0.28, 0.28)
+	// Flight attitude: the long axis is tilted by N(0, PitchStd) radians, clamped to
+	// ±PitchMax. Most ships read as level, but the tail gives some a nose-up (ascending) or
+	// nose-down (descending) attitude; the drive plumes fire along this axis, so they angle
+	// with the ship.
+	orient := clamp(rng.NormFloat64()*sb.PitchStd, -sb.PitchMax, sb.PitchMax)
 	cosO, sinO := math.Cos(orient), math.Sin(orient)
 
 	// Position: center the ship in the configured sky band, kept fully on screen.
