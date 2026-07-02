@@ -9,6 +9,7 @@ package scene
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -65,6 +66,20 @@ type Context struct {
 	// Mist carries the resolved ground-mist parameters (from the globals); the
 	// mountainranges.v0 element reads it. Its zero value (Present false) means no mist.
 	Mist MistBase
+	// Bushes carries the resolved base parameters for the scattered ground bushes
+	// (from the globals); the bushes.v0 generator reads it and varies each bush around
+	// the base. Its zero value (Chance 0) means no bushes.
+	Bushes BushesBase
+	// BushGradient is the scene-wide bush color gradient (from the globals); the
+	// bushes.v0 renderer samples it per bush for the base color.
+	BushGradient gfx.Gradient
+	// BushFloor is the per-column lowest row a bush anchor may sit at: bushes must
+	// anchor at y >= BushFloor[x], so they appear only in front of the nearest mountain
+	// range at that column and below any ground mist. It is shared working state built
+	// in newContext from the seed (like Ocean) by re-deriving the mountain ranges; only
+	// the bushes GENERATOR reads it, so RenderList stays seed-independent. A nil slice
+	// (no ranges configured) means bushes are unconstrained (the whole ground is open).
+	BushFloor []int
 
 	// Ocean is the scene's resolved ocean/land model, decided up front (like the
 	// gradients) so both Cities and Water can use it: Cities to place buildings
@@ -212,6 +227,8 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.MountainRanges = g.MountainRanges
 	sctx.MountainRugged = g.MountainRugged
 	sctx.Mist = g.Mist
+	sctx.Bushes = g.Bushes
+	sctx.BushGradient = g.BushGradient
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
 	// to land while Water still reflects the city skyline. For a v1 ocean (a v1 director
@@ -226,7 +243,63 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 		sctx.Ocean = sctx.Ocean.withPerspective(g.Perspective, w)
 	}
 	sctx.LandAt = sctx.Ocean.LandAt
+
+	// Resolve the per-column bush floor (the rows the mountain ranges and any mist
+	// occupy) so the bushes generator can keep its clumps in front of the nearest range
+	// and below the mist. It re-derives the ranges from the same "mountainranges" stream
+	// the element uses — an independent stream, so it disturbs nothing — and so matches
+	// the ranges the element actually draws. Only the bushes generator reads it; no
+	// renderer does, so RenderList stays seed-independent (like Ocean above).
+	sctx.BushFloor = computeBushFloor(sctx, seed)
 	return sctx
+}
+
+// computeBushFloor returns the per-column lowest row a bush anchor may occupy: at or
+// below the deepest mountain-range foot at that column, pushed further down by the
+// mist's lower fade where the scene has mist. It re-derives the ranges deterministically
+// from the "mountainranges" stream (the same stream and resolver the element uses), so
+// the floor matches the ranges actually drawn. It returns nil when the scene has no
+// extra ranges configured, meaning bushes are unconstrained across the open ground.
+func computeBushFloor(c *Context, seed int64) []int {
+	mr := c.MountainRanges
+	if mr.Chance <= 0 || mr.CountMax <= 0 {
+		return nil
+	}
+	bands, sc, ok := resolveMountainRangeBands(deriveRng(seed, "mountainranges"), c)
+	if !ok {
+		return nil
+	}
+	w, h := c.W, c.H
+	horizon := c.Settings.HorizonY
+	floor := make([]int, w)
+	covered := make([]bool, w) // whether any range reaches this column (so mist can settle)
+	for x := range floor {
+		floor[x] = horizon + 1
+	}
+	for _, b := range bands {
+		for x := range w {
+			if b.heights[x] <= 0 {
+				continue // no peak here: this range does not occlude this column
+			}
+			covered[x] = true
+			if foot := b.baseline + int(math.Ceil(bandBulge(b, x))) + 1; foot > floor[x] {
+				floor[x] = foot
+			}
+		}
+	}
+	// Mist settles below the mountains and fades out over LowFadeFrac of the ground;
+	// push the floor past that fade so bushes sit lower than any visible mist — but only
+	// where a range actually stands (the mist hugs the mountains' footprint), so open
+	// ground between/around the ranges stays available for bushes.
+	if sc.mist {
+		landFade := max(int(c.Mist.LowFadeFrac*float64(h-horizon)), 1)
+		for x := range floor {
+			if covered[x] {
+				floor[x] += landFade
+			}
+		}
+	}
+	return floor
 }
 
 // RenderList draws an already-generated scene list onto cv, skipping generation

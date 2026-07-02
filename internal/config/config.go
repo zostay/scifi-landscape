@@ -61,6 +61,14 @@ type Config struct {
 	// director to roll the per-scene mist on or off and resolve its shape. Zero-value
 	// callers (the v0 director) leave it empty, which means "no mist".
 	Mist MistConfig `yaml:"mist"`
+
+	// Bushes parameterizes the scattered ground bushes (the bushes.v0 element): how
+	// likely/how many per vantage, how their size grows with nearness, and the shape,
+	// burial, texture, and shading look. The bushes' colors come from a scene-wide bush
+	// gradient the director derives (not from this config). It is read by the scene.v1
+	// director (to resolve the per-vantage base into the globals). Zero-value callers
+	// (the v0 director) leave it empty, which means "no bushes".
+	Bushes BushesConfig `yaml:"bushes"`
 }
 
 // Algorithms lists the versioned registry keys of the algorithms that build a
@@ -246,6 +254,64 @@ type MistConfig struct {
 	OceanFadeFrac float64 `yaml:"oceanFadeFrac"`
 }
 
+// BushesConfig parameterizes the bushes.v0 element: lopsided, squashed clumps of
+// foliage rooted in the ground, scattered far→near in front of the mountains. The
+// scene.v1 director resolves the per-vantage values (the *High/*Low pairs) into the
+// globals; the element then rolls a count and each bush's depth, size, shape, angle,
+// burial, and color position along the scene's bush gradient. (The colors themselves
+// come from that gradient, which the director derives separately — not from here.)
+//
+//   - Chance — probability a scene has any bushes at all.
+//   - CountHigh / CountLow — the bush count at the reference width (480px), scaled
+//     by the actual width (not area), for each vantage. The high vantage scatters many
+//     small bushes across the ground; the low vantage places fewer but much larger
+//     ones nearer the viewer. Width-scaling keeps the density stable across resolutions
+//     (bush sizes are width-fractions, so area-scaling would pile up the foreground).
+//   - MinSizeFrac — a far bush's diameter as a fraction of the scene width (a few
+//     pixels: just big enough to read in the distance).
+//   - MaxSizeFracHigh / MaxSizeFracLow — the nearest bush's diameter as a fraction
+//     of the width per vantage. High keeps bushes small (start small, end small); low
+//     lets a near bush grow up to ~a quarter of the width, large enough to occlude
+//     part of the scene.
+//   - SizeGammaHigh / SizeGammaLow — the depth→size exponent: a bush's size ramps
+//     from MinSizeFrac (far) to the vantage's max (near) as nearness^gamma, so a
+//     larger gamma keeps bushes small until they are quite close.
+//   - DepthBiasHigh / DepthBiasLow — how the bushes are distributed in depth: an
+//     anchor's nearness is drawn uniformly then raised to this power, so a value > 1
+//     pushes bushes toward the far distance (fewer, larger ones near the viewer). Use
+//     ~1 in high (bushes stay small, so an even scatter reads well) and > 1 in low,
+//     where near bushes grow large and an even count per distance would crowd the
+//     foreground.
+//   - SquashMin / SquashMax — a bush's minor/major axis ratio (it is wider than it
+//     is tall — a squashed clump), drawn in this range.
+//   - BuryMin / BuryMax — the fraction of a bush's height that sits below the ground
+//     contact line (buried), so the visible clump is cut off and rounded at the
+//     bottom.
+//   - SizeJitter — per-bush random size variation (± this fraction).
+//   - Lumpiness — how strongly the elliptical outline is perturbed into a lopsided,
+//     irregular bush silhouette.
+//   - Ambient — the shadow-side fill light (0 = black shadows, 1 = flat): the bush is
+//     form-shaded as a bulging clump lit from the scene's light direction.
+type BushesConfig struct {
+	Chance          float64 `yaml:"chance"`
+	CountHigh       int     `yaml:"countHigh"`
+	CountLow        int     `yaml:"countLow"`
+	MinSizeFrac     float64 `yaml:"minSizeFrac"`
+	MaxSizeFracHigh float64 `yaml:"maxSizeFracHigh"`
+	MaxSizeFracLow  float64 `yaml:"maxSizeFracLow"`
+	SizeGammaHigh   float64 `yaml:"sizeGammaHigh"`
+	SizeGammaLow    float64 `yaml:"sizeGammaLow"`
+	DepthBiasHigh   float64 `yaml:"depthBiasHigh"`
+	DepthBiasLow    float64 `yaml:"depthBiasLow"`
+	SquashMin       float64 `yaml:"squashMin"`
+	SquashMax       float64 `yaml:"squashMax"`
+	BuryMin         float64 `yaml:"buryMin"`
+	BuryMax         float64 `yaml:"buryMax"`
+	SizeJitter      float64 `yaml:"sizeJitter"`
+	Lumpiness       float64 `yaml:"lumpiness"`
+	Ambient         float64 `yaml:"ambient"`
+}
+
 // pipelineElements is the scene's element order as versioned algorithm keys,
 // used as the default Generator and Renderer key list (these resolve against the
 // scene package's generator/renderer registries). Directors default to the single
@@ -253,6 +319,7 @@ type MistConfig struct {
 var pipelineElements = []string{
 	"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
 	"clouds.v0", "mountains.v1", "ground.v1", "cities.v1", "water.v1", "mountainranges.v0",
+	"bushes.v0",
 }
 
 // DefaultConfig returns the complete built-in configuration. Its values mirror
@@ -314,6 +381,25 @@ func DefaultConfig() Config {
 			FadeUpFrac:    0.08, // the mist fades up ~8% of the sky over each range's slopes
 			LowFadeFrac:   0.25, // low view: opaque mist fades out over ~25% of the ground
 			OceanFadeFrac: 0.10, // mist reaches ~10% of the width over open water, then gone
+		},
+		Bushes: BushesConfig{
+			Chance:          0.7,   // most scenes get some bushes
+			CountHigh:       40,    // many small bushes scattered from the elevated view
+			CountLow:        8,     // just a few, much larger bushes at ground level
+			MinSizeFrac:     0.006, // far bushes ~3px across at 480 wide: just visible
+			MaxSizeFracHigh: 0.03,  // high view: bushes stay small (start small, end small)
+			MaxSizeFracLow:  0.25,  // low view: a near bush can span a quarter of the width
+			SizeGammaHigh:   1.0,   // high: size grows ~linearly with nearness
+			SizeGammaLow:    2.2,   // low: bushes stay small until they are quite close
+			DepthBiasHigh:   1.0,   // high: even depth scatter (bushes stay small)
+			DepthBiasLow:    3.0,   // low: push bushes far, so few big ones crowd the foreground
+			SquashMin:       0.45,  // clumps are noticeably wider than tall
+			SquashMax:       0.72,
+			BuryMin:         0.16, // a little of the bush is below the ground line
+			BuryMax:         0.40, // up to ~40% buried, so the base is cut off and rounded
+			SizeJitter:      0.35, // ±35% per-bush size variation
+			Lumpiness:       0.34, // lopsided, irregular outline (not a plain ellipse)
+			Ambient:         0.40, // shadow side keeps ~40% fill so it never goes black
 		},
 	}
 }

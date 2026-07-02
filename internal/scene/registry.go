@@ -119,4 +119,11 @@ func init() {
 	// the v1 globals' resolved base parameters and renders last (after the ocean), so a
 	// coastal range occludes the sea behind it and reflects into the water in front.
 	RegisterElement("mountainranges.v0", &MountainRanges{})
+
+	// bushes.v0 scatters lopsided, soft-edged clumps of foliage across the ground, drawn
+	// far→near in front of the mountains. Each bush samples its color from the scene's
+	// own bush gradient. It reads the v1 globals' resolved base parameters and the
+	// per-column bush floor (built in newContext from the same ranges), and renders last
+	// of all (frontmost), so a near bush can occlude the scene behind it.
+	RegisterElement("bushes.v0", &Bushes{})
 }

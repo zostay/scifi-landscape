@@ -3,6 +3,7 @@ package scene
 import (
 	"image"
 	"math"
+	"math/rand"
 	"sort"
 	"time"
 
@@ -54,21 +55,40 @@ const (
 // list means the scene has no extra ranges (zero-value globals, a failed chance roll,
 // or no room).
 func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
+	bands, sc, ok := resolveMountainRangeBands(c.Rng, c)
+	if !ok {
+		return nil, nil
+	}
+	return SceneList{mountainRangesToEntity(bands, sc)}, nil
+}
+
+// resolveMountainRangeBands is the shared, pure resolver behind the mountainranges.v0
+// element: from a random stream and the scene context (the resolved base parameters,
+// settings, ocean, and ground gradient) it produces the ordered (far→near) ranges plus
+// the scene-level data (water tint, mist flag). It draws all of the element's randomness
+// here, in a fixed order, on the stream it is given; it draws nothing onto the canvas.
+// ok is false (and the slices nil) when the scene has no extra ranges — no ranges
+// configured, no room, or a failed chance roll.
+//
+// The element's Generate calls it on its own "mountainranges" stream; newContext calls
+// it on an independently derived copy of that same stream (to build the bush floor), so
+// both see byte-identical ranges without either disturbing the other.
+func resolveMountainRangeBands(rng *rand.Rand, c *Context) ([]mountainRangeBand, rangesScene, bool) {
 	mr := c.MountainRanges
 	if mr.Chance <= 0 || mr.CountMax <= 0 {
-		return nil, nil // no extra ranges configured (e.g. the v0 director)
+		return nil, rangesScene{}, false // no extra ranges configured (e.g. the v0 director)
 	}
 	horizon := c.Settings.HorizonY
 	w, h := c.W, c.H
 	groundH := h - horizon
 	if horizon < 4 || groundH < mountainRangesMinGround {
-		return nil, nil // no sky to rise into, or no ground to recede across
+		return nil, rangesScene{}, false // no sky to rise into, or no ground to recede across
 	}
-	if c.Rng.Float64() >= mr.Chance {
-		return nil, nil // this scene has no extra ranges
+	if rng.Float64() >= mr.Chance {
+		return nil, rangesScene{}, false // this scene has no extra ranges
 	}
 
-	n := 1 + c.Rng.Intn(mr.CountMax)
+	n := 1 + rng.Intn(mr.CountMax)
 	sky := float64(horizon)
 	// Color is normalized by the largest possible range (as the horizon range is), so
 	// short ranges stay ground-colored and only tall ones reach the white peak.
@@ -82,7 +102,7 @@ func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
 		// vantage BaselineMaxFrac can exceed 1, putting the nearest feet at — or just
 		// below — the bottom edge, so the foot may sit off-screen while the peak still
 		// rises into view; cap it where even a full-height peak would no longer show.
-		frac := mr.BaselineMaxFrac*float64(i+1)/float64(n) + c.Rng.NormFloat64()*mr.BaselineJitterFrac
+		frac := mr.BaselineMaxFrac*float64(i+1)/float64(n) + rng.NormFloat64()*mr.BaselineJitterFrac
 		baseline := horizon + int(math.Round(clamp(frac, 0, 2)*float64(groundH)))
 		baseline = clampInt(baseline, horizon+1, h-1+int(maxAlt))
 
@@ -92,16 +112,16 @@ func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
 		heightScale := 1 + rangeNearHeightGain*depth
 		bandMaxAlt := maxAlt * heightScale
 
-		smoothness := clamp01(mr.SmoothnessMean + c.Rng.NormFloat64()*mr.SmoothnessStd)
-		heightPx := math.Min(math.Max(mr.HeightMeanFrac+c.Rng.NormFloat64()*mr.HeightStdFrac, 0), mountainHeightMax) * sky * heightScale
-		hmap := mountainHeights(c.Rng, w, smoothness, heightPx)
+		smoothness := clamp01(mr.SmoothnessMean + rng.NormFloat64()*mr.SmoothnessStd)
+		heightPx := math.Min(math.Max(mr.HeightMeanFrac+rng.NormFloat64()*mr.HeightStdFrac, 0), mountainHeightMax) * sky * heightScale
+		hmap := mountainHeights(rng, w, smoothness, heightPx)
 		// Bound the range to the land at its own depth so no part of its foot stands in
 		// water; with no ocean the whole ground is land and the range spans the width.
 		if hasOcean {
-			applyCoastEnvelope(c.Rng, hmap, c.Ocean, baseline, w)
+			applyCoastEnvelope(rng, hmap, c.Ocean, baseline, w)
 		}
-		grad := buildMountainGradient(c.Rng, c.GroundGradient)
-		texSeed := c.Rng.Int()
+		grad := buildMountainGradient(rng, c.GroundGradient)
+		texSeed := rng.Int()
 
 		// Per-column foot-bulge depth, clipped at the shoreline so the foot never swells
 		// into nearer water (the renderer draws after the ocean, so an unclipped bulge
@@ -158,7 +178,7 @@ func (m *MountainRanges) Generate(c *Context) (SceneList, error) {
 	if c.Mist.Present && len(bands) > 0 {
 		sc.mist = true
 	}
-	return SceneList{mountainRangesToEntity(bands, sc)}, nil
+	return bands, sc, true
 }
 
 // mistBandFade is the per-column horizontal factor for one range's mist band: 1 over
