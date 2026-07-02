@@ -40,6 +40,22 @@ func (w *Water1) RenderList(c *Context, list SceneList) error {
 	return renderOceanV1(c, oc, c.Perspective)
 }
 
+// beachPerspGain sets how much the sand band widens toward the viewer under full shore
+// perspective: at the bottom of a low-vantage scene the beach spans (1+beachPerspGain)×
+// its horizon width in elevation, so the shore broadens into the foreground the way
+// perspective foreshortens the near ground. It is scaled by the shore-perspective
+// strength, so the elevated (high) view keeps a nearly uniform shore ribbon.
+const beachPerspGain = 3.0
+
+// beachBandV1 returns the elevation width painted as beach at screen depth d (0 at the
+// horizon, 1 at the bottom) under shore-perspective strength s (0..1). It widens linearly
+// toward the viewer (see beachPerspGain), so the near shore reads as a broad beach and
+// the far shore as a thin ribbon. The bush generator uses the same band to keep clumps
+// off the sand, so the exclusion matches the beach water.v1 actually draws.
+func beachBandV1(d, s float64) float64 {
+	return islandBeachBand * (1 + beachPerspGain*clamp01(s)*clamp01(d))
+}
+
 // renderOceanV1 mirrors the scene above the horizon into a perspective sea. The shore
 // boundary is bent by perspective via the ocean's perspective mapping — set here from
 // the same globals newContext used for the cities' LandAt, so buildings stay on the
@@ -151,7 +167,9 @@ func renderOceanV1(c *Context, oc *ocean, p Perspective) error {
 				for x := range w {
 					e := oc.elev(x, y)
 					if e > oc.seaLevel {
-						if beach := smoothstep(oc.seaLevel+islandBeachBand, oc.seaLevel, e); beach > 0 {
+						// The sand band widens toward the viewer, so the shore broadens into
+						// the foreground under perspective (see beachBandV1).
+						if beach := smoothstep(oc.seaLevel+beachBandV1(d, s), oc.seaLevel, e); beach > 0 {
 							blendPixel(img, w, h, x, y, oc.sand, beach*islandBeachAmt)
 						}
 						continue

@@ -25,7 +25,8 @@ import (
 //
 // Bushes appear only in front of the nearest mountain range at each column and below any
 // ground mist: the generator consults the per-column bush floor that newContext derives
-// from the same ranges the mountainranges element draws. Bushes render LAST (frontmost),
+// from the same ranges the mountainranges element draws. They also root in soil, not on
+// the sand, so none is placed on the shore's beach band. Bushes render LAST (frontmost),
 // so a near clump can occlude the ground, water, and mountains behind it.
 //
 // This is a v1-era element (it reads the v1 globals); it draws from its own "bushes"
@@ -73,8 +74,8 @@ const (
 
 // Generate resolves the scene's bushes into a single entity. It reads the resolved base
 // parameters from the globals (Context.Bushes), rolls a count for the vantage scaled by
-// area, and places each bush — rejecting anchors that fall in water or behind the nearest
-// mountain range / under the mist (via Context.BushFloor) — varying its depth, size,
+// area, and places each bush — rejecting anchors that fall in water, on the shore's beach,
+// or behind the nearest mountain range / under the mist (via Context.BushFloor) — varying its depth, size,
 // squash, angle, burial, gradient color position, and seeds around the base. All
 // randomness is drawn here, in a fixed order, on the element stream; it draws nothing, so
 // identical globals (and the same bush floor) always yield an identical scene list. An
@@ -130,6 +131,16 @@ func (r *Bushes) Generate(c *Context) (SceneList, error) {
 			// Bushes grow on land, never in open water.
 			if c.LandAt != nil && !c.LandAt(x, ay) {
 				continue
+			}
+			// And they root in soil, not on the sand: reject anchors within the shore's
+			// beach band — the same perspective-widened band water.v1 paints (see
+			// beachBandV1) — so a clump never sits on the beach, which broadens toward the
+			// viewer in the low vantage.
+			if oc := c.Ocean; oc != nil && oc.present {
+				d := float64(ay-horizon) / float64(groundH)
+				if oc.elev(x, ay) <= oc.seaLevel+beachBandV1(d, clamp01(c.Perspective.ShorePersp)) {
+					continue
+				}
 			}
 
 			// Accepted: roll this bush's shape and color. Draw order is fixed (jitter,
