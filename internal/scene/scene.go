@@ -9,7 +9,6 @@ package scene
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/rand"
 	"time"
 
@@ -271,32 +270,30 @@ func computeBushFloor(c *Context, seed int64) []int {
 	}
 	w, h := c.W, c.H
 	horizon := c.Settings.HorizonY
-	floor := make([]int, w)
-	covered := make([]bool, w) // whether any range reaches this column (so mist can settle)
-	for x := range floor {
-		floor[x] = horizon + 1
-	}
-	for _, b := range bands {
-		for x := range w {
-			if b.heights[x] <= 0 {
-				continue // no peak here: this range does not occlude this column
-			}
-			covered[x] = true
-			if foot := b.baseline + int(math.Ceil(bandBulge(b, x))) + 1; foot > floor[x] {
-				floor[x] = foot
-			}
-		}
-	}
-	// Mist settles below the mountains and fades out over LowFadeFrac of the ground;
-	// push the floor past that fade so bushes sit lower than any visible mist — but only
-	// where a range actually stands (the mist hugs the mountains' footprint), so open
-	// ground between/around the ranges stays available for bushes.
+
+	// The mist reaches horizontally past each range's footprint: its lower edge is the
+	// cone-dilated mountain floor (a deep foot spills its fog into the neighboring valleys
+	// and notches, see mistMountainFloor), then fades out over LowFadeFrac of the ground.
+	// Derive the bush floor from that SAME dilated floor and fade so it matches the fog
+	// actually drawn — otherwise a bush could anchor in a notch between peaks (where the
+	// raw per-column foot is shallow) and float on top of the mist that fills it. Without
+	// mist there is no horizontal skirt, so the dilation collapses to zero (the raw foot)
+	// and the fade adds nothing, leaving open ground between the ranges free for bushes.
+	fadeDist, landFade := 0, 0
 	if sc.mist {
-		landFade := max(int(c.Mist.LowFadeFrac*float64(h-horizon)), 1)
-		for x := range floor {
-			if covered[x] {
-				floor[x] += landFade
-			}
+		fadeDist = int(c.Mist.OceanFadeFrac * float64(w))
+		landFade = max(int(c.Mist.LowFadeFrac*float64(h-horizon)), 1)
+	}
+	mountainFloor := mistMountainFloor(bands, w, h, horizon, fadeDist)
+
+	floor := make([]int, w)
+	for x := range floor {
+		if mountainFloor[x] > horizon {
+			// A range foot — or its dilated mist skirt — reaches this column: bushes must
+			// anchor below it, and below the mist's downward fade where the scene has mist.
+			floor[x] = mountainFloor[x] + 1 + landFade
+		} else {
+			floor[x] = horizon + 1
 		}
 	}
 	return floor

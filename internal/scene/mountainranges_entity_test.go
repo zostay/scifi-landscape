@@ -314,8 +314,11 @@ func TestMistBandFade(t *testing.T) {
 }
 
 // TestMistMountainFloor proves the per-column mist floor is the deepest mountain foot
-// at each column, the horizon where no range reaches, and dilated horizontally so a
-// column just off a range's edge still counts as covered.
+// at each column, the horizon where no range reaches, and dilated horizontally with a
+// sloped (cone) skirt: a column just off a range's edge is still covered, but at a
+// progressively shallower depth that recedes back to the horizon with distance — so the
+// fog's lower edge slopes smoothly instead of stamping a flat plateau (which read as a
+// blocky, artificial mist edge over open water).
 func TestMistMountainFloor(t *testing.T) {
 	const w, h, horizon = 100, 200, 20
 	heights := make([]float64, w)
@@ -328,8 +331,16 @@ func TestMistMountainFloor(t *testing.T) {
 	if floor[50] != 100 {
 		t.Errorf("over the mountain: floor[50] = %d, want 100", floor[50])
 	}
-	if floor[37] != 100 { // within the 5-column dilation of the footprint edge (40)
-		t.Errorf("within dilation: floor[37] = %d, want 100", floor[37])
+	// Just past the footprint's right edge (columns 40..59): still covered, but shallower
+	// than the foot and deeper than the horizon — the cone skirt, not a flat plateau.
+	if !(floor[60] > horizon && floor[60] < 100) {
+		t.Errorf("skirt just off the edge: floor[60] = %d, want in (%d, 100)", floor[60], horizon)
+	}
+	// The skirt recedes monotonically back down to the horizon with distance.
+	for x := 60; x < w-1; x++ {
+		if floor[x+1] > floor[x] {
+			t.Errorf("skirt not monotonically receding: floor[%d]=%d then floor[%d]=%d", x, floor[x], x+1, floor[x+1])
+		}
 	}
 	if floor[0] != horizon || floor[99] != horizon {
 		t.Errorf("far from any range: floor[0]=%d floor[99]=%d, want %d", floor[0], floor[99], horizon)
