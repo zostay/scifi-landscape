@@ -126,4 +126,10 @@ func init() {
 	// per-column bush floor (built in newContext from the same ranges), and renders last
 	// of all (frontmost), so a near bush can occlude the scene behind it.
 	RegisterElement("bushes.v0", &Bushes{})
+
+	// spaceships.v0 hangs procedurally-built flying craft in the sky: each ship is a tight
+	// cluster of overlaid, shaded shapes with drive plumes flaring from one side. It reads
+	// the v1 globals' resolved base parameters, draws from its own "spaceships" stream, and
+	// renders just after the clouds (in the sky) so the horizon terrain occludes a low ship.
+	RegisterElement("spaceships.v0", &Spaceships{})
 }

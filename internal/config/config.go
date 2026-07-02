@@ -69,6 +69,12 @@ type Config struct {
 	// director (to resolve the per-vantage base into the globals). Zero-value callers
 	// (the v0 director) leave it empty, which means "no bushes".
 	Bushes BushesConfig `yaml:"bushes"`
+
+	// Spaceships parameterizes the flying spaceships (the spaceships.v0 element):
+	// procedurally-built craft assembled from overlaid, shaded shapes with drive plumes.
+	// It is read by the scene.v1 director (to resolve the base into the globals). Zero-
+	// value callers (the v0 director) leave it empty, which means "no spaceships".
+	Spaceships SpaceshipsConfig `yaml:"spaceships"`
 }
 
 // Algorithms lists the versioned registry keys of the algorithms that build a
@@ -312,13 +318,79 @@ type BushesConfig struct {
 	Ambient         float64 `yaml:"ambient"`
 }
 
+// SpaceshipsConfig parameterizes the spaceships.v0 element: flying craft that hang in
+// the sky, each assembled procedurally from a tight cluster of overlaid, shaded shapes
+// (ovals, triangles, rectangles, rounded-corner squares) with drive plumes flaring from
+// one side. The scene.v1 director copies these into the globals; the element then rolls
+// each ship's position, size, part layout, and plumes on its own random stream.
+//
+//   - CountMean / CountStd / CountMax — the number of ships in a scene is drawn from a
+//     normal distribution (mean CountMean, standard deviation CountStd), rounded and
+//     clamped to [0, CountMax]. With a mean near 1 and a modest spread, most scenes have
+//     0–3 ships and larger fleets are increasingly rare.
+//   - MinSizeFrac / MaxSizeFrac — a ship's overall length as a fraction of the scene
+//     width, drawn in this range (small ships to large ships).
+//   - MinParts / MaxParts — the hull's shape count: a small ship draws near MinParts,
+//     a large ship near MaxParts, so larger craft read as more intricate.
+//   - AspectMin / AspectMax — the hull's height-to-length ratio, drawn in this range
+//     (smaller is a sleeker, more elongated craft).
+//   - PitchStd / PitchMax — the ship's flight attitude: its long axis is tilted by an angle
+//     drawn from a normal distribution (mean 0 = level, standard deviation PitchStd
+//     radians), clamped to ±PitchMax. Most ships read as level, but the tail gives some a
+//     nose-up (ascending) or nose-down (descending) attitude. The drive plumes fire along
+//     this axis, so they angle with the ship.
+//   - MinPlumes / MaxPlumes — how many drive plumes flare from the chosen "ear" side.
+//   - PlumeLenFrac — a plume's length as a fraction of the ship length.
+//   - PlumeWidthFrac — a plume's base half-width as a fraction of the ship height.
+//   - NozzleLenFrac — each drive plume gets a nozzle: a trapezoid whose narrow end aligns
+//     with the plume base and whose wide end tucks back into the hull, connecting the
+//     plume to the ship. This is the nozzle's length along the plume axis as a fraction of
+//     the ship length.
+//   - NozzleFlare — the nozzle's wide-end (hull side) half-width as a multiple of its
+//     narrow-end (plume side) half-width; > 1 flares the trapezoid open toward the hull.
+//   - MinGreebles / MaxGreebles — greebles are a second layer of small shapes drawn over
+//     the hull: some straddle the hull outline (complicating the silhouette) and some sit
+//     inside it (interior detail). The count scales with ship size from Min to Max.
+//   - GreebleSizeMin / GreebleSizeMax — a greeble's size as a fraction of the ship height.
+//   - Ambient — the shadow-side fill light for the hull's top-lit form shading (0 =
+//     black shadows, 1 = flat).
+//   - SkyTopFrac / SkyBotFrac — the vertical band the ship centers within, as fractions
+//     of the sky height measured from the top: a ship sits between SkyTopFrac and
+//     (1-SkyBotFrac) of the sky, so it never crowds the very top or dips to the horizon.
+type SpaceshipsConfig struct {
+	CountMean      float64 `yaml:"countMean"`
+	CountStd       float64 `yaml:"countStd"`
+	CountMax       int     `yaml:"countMax"`
+	MinSizeFrac    float64 `yaml:"minSizeFrac"`
+	MaxSizeFrac    float64 `yaml:"maxSizeFrac"`
+	MinParts       int     `yaml:"minParts"`
+	MaxParts       int     `yaml:"maxParts"`
+	AspectMin      float64 `yaml:"aspectMin"`
+	AspectMax      float64 `yaml:"aspectMax"`
+	PitchStd       float64 `yaml:"pitchStd"`
+	PitchMax       float64 `yaml:"pitchMax"`
+	MinPlumes      int     `yaml:"minPlumes"`
+	MaxPlumes      int     `yaml:"maxPlumes"`
+	PlumeLenFrac   float64 `yaml:"plumeLenFrac"`
+	PlumeWidthFrac float64 `yaml:"plumeWidthFrac"`
+	NozzleLenFrac  float64 `yaml:"nozzleLenFrac"`
+	NozzleFlare    float64 `yaml:"nozzleFlare"`
+	MinGreebles    int     `yaml:"minGreebles"`
+	MaxGreebles    int     `yaml:"maxGreebles"`
+	GreebleSizeMin float64 `yaml:"greebleSizeMin"`
+	GreebleSizeMax float64 `yaml:"greebleSizeMax"`
+	Ambient        float64 `yaml:"ambient"`
+	SkyTopFrac     float64 `yaml:"skyTopFrac"`
+	SkyBotFrac     float64 `yaml:"skyBotFrac"`
+}
+
 // pipelineElements is the scene's element order as versioned algorithm keys,
 // used as the default Generator and Renderer key list (these resolve against the
 // scene package's generator/renderer registries). Directors default to the single
 // scene director. The keys are part of the on-disk config contract.
 var pipelineElements = []string{
 	"sky.v0", "stars.v0", "systemstars.v0", "planets.v0",
-	"clouds.v0", "mountains.v1", "ground.v1", "cities.v1", "water.v1", "mountainranges.v0",
+	"clouds.v0", "spaceships.v0", "mountains.v1", "ground.v1", "cities.v1", "water.v1", "mountainranges.v0",
 	"bushes.v0",
 }
 
@@ -400,6 +472,32 @@ func DefaultConfig() Config {
 			SizeJitter:      0.35, // ±35% per-bush size variation
 			Lumpiness:       0.34, // lopsided, irregular outline (not a plain ellipse)
 			Ambient:         0.40, // shadow side keeps ~40% fill so it never goes black
+		},
+		Spaceships: SpaceshipsConfig{
+			CountMean:      1.0,  // most scenes have about one ship
+			CountStd:       1.3,  // spread so 0–3 are common, larger fleets increasingly rare
+			CountMax:       10,   // hard ceiling on a fleet
+			MinSizeFrac:    0.03, // a small craft ~3% of the width across
+			MaxSizeFrac:    0.10, // a large craft ~10% of the width across
+			MinParts:       3,    // small ships: a few shapes
+			MaxParts:       14,   // large ships: many overlaid shapes
+			AspectMin:      0.32, // sleek, elongated hulls
+			AspectMax:      0.55, // chunkier hulls
+			PitchStd:       0.34, // most ships near level (~±20°), tail climbs/dives steeper
+			PitchMax:       1.05, // clamp attitude to ±~60°
+			MinPlumes:      1,    // at least one drive plume
+			MaxPlumes:      4,    // up to a bank of four
+			PlumeLenFrac:   0.9,  // a plume reaches ~90% of the ship length behind it
+			PlumeWidthFrac: 0.5,  // plume base half-width ~half the ship height
+			NozzleLenFrac:  0.16, // nozzle spans ~16% of the ship length from plume to hull
+			NozzleFlare:    1.9,  // nozzle wide (hull) end ~1.9x its narrow (plume) end
+			MinGreebles:    6,    // a few greebles on a small ship
+			MaxGreebles:    26,   // many greebles on a large ship
+			GreebleSizeMin: 0.10, // smallest greeble ~10% of the ship height
+			GreebleSizeMax: 0.32, // largest greeble ~1/3 of the ship height
+			Ambient:        0.35, // hull shadow side keeps ~35% fill
+			SkyTopFrac:     0.10, // keep the ship out of the top 10% of the sky
+			SkyBotFrac:     0.15, // and out of the bottom 15% (just above the horizon)
 		},
 	}
 }

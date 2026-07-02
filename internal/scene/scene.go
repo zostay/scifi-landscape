@@ -72,6 +72,10 @@ type Context struct {
 	// BushGradient is the scene-wide bush color gradient (from the globals); the
 	// bushes.v0 renderer samples it per bush for the base color.
 	BushGradient gfx.Gradient
+	// Spaceships carries the resolved base parameters for the flying spaceships (from the
+	// globals); the spaceships.v0 generator reads it and rolls each ship within the ranges.
+	// Its zero value (Count 0) means no ships.
+	Spaceships SpaceshipsBase
 	// BushFloor is the per-column lowest row a bush anchor may sit at: bushes must
 	// anchor at y >= BushFloor[x], so they appear only in front of the nearest mountain
 	// range at that column and below any ground mist. It is shared working state built
@@ -228,6 +232,7 @@ func (sc *Scene) newContext(ctx context.Context, cv *canvas.Canvas, seed int64, 
 	sctx.Mist = g.Mist
 	sctx.Bushes = g.Bushes
 	sctx.BushGradient = g.BushGradient
+	sctx.Spaceships = g.Spaceships
 
 	// Resolve the ocean/land model up front so Cities (drawn before Water) can keep
 	// to land while Water still reflects the city skyline. For a v1 ocean (a v1 director
