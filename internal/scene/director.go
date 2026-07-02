@@ -90,6 +90,14 @@ type Globals struct {
 	// bushes fall back to black, but the scene.v0 director never produces bushes so it is
 	// unaffected.
 	BushGradient gfx.Gradient `yaml:"bushGradient,omitempty"`
+
+	// Spaceships holds the resolved base parameters for the flying spaceships (the
+	// spaceships.v0 element): how many ships, their size/part/plume ranges, and the sky
+	// band they fly in. The director copies them from the config; the element rolls each
+	// ship's concrete layout on its own stream. Its zero value (Count 0) means no ships,
+	// so a globals file predating this field — and the scene.v0 director, which never sets
+	// it — reproduces exactly as before.
+	Spaceships SpaceshipsBase `yaml:"spaceships"`
 }
 
 // Perspective is the resolved set of low-mode ("ground-level") ground-plane
@@ -185,6 +193,55 @@ type BushesBase struct {
 	Lumpiness float64 `yaml:"lumpiness"`
 	// Ambient is the shadow-side fill light for the bush form-shading.
 	Ambient float64 `yaml:"ambient"`
+}
+
+// SpaceshipsBase is the resolved, scene-wide base for the flying spaceships the
+// spaceships.v0 element draws. The director copies it straight from the config (ships
+// have no per-vantage variation today); the element rolls each ship's concrete layout —
+// position, size, parts, and plumes — within these ranges on its own stream. Living in
+// the globals means a recorded scene reproduces the ships without the config. The zero
+// value (Count 0) means no ships, so the v0 director — which never sets this — is
+// unaffected.
+type SpaceshipsBase struct {
+	// CountMean/CountStd/CountMax parameterize the per-scene ship count: it is drawn from a
+	// normal distribution (mean CountMean, σ CountStd), rounded and clamped to [0, CountMax].
+	CountMean float64 `yaml:"countMean"`
+	CountStd  float64 `yaml:"countStd"`
+	CountMax  int     `yaml:"countMax"`
+	// MinSizeFrac/MaxSizeFrac bound a ship's overall length as a fraction of the width.
+	MinSizeFrac float64 `yaml:"minSizeFrac"`
+	MaxSizeFrac float64 `yaml:"maxSizeFrac"`
+	// MinParts/MaxParts bound the hull's shape count (small→large ships).
+	MinParts int `yaml:"minParts"`
+	MaxParts int `yaml:"maxParts"`
+	// AspectMin/AspectMax bound the hull's height-to-length ratio.
+	AspectMin float64 `yaml:"aspectMin"`
+	AspectMax float64 `yaml:"aspectMax"`
+	// MinPlumes/MaxPlumes bound how many drive plumes flare from the ear side.
+	MinPlumes int `yaml:"minPlumes"`
+	MaxPlumes int `yaml:"maxPlumes"`
+	// PlumeLenFrac is a plume's length as a fraction of the ship length; PlumeWidthFrac is
+	// its base half-width as a fraction of the ship height.
+	PlumeLenFrac   float64 `yaml:"plumeLenFrac"`
+	PlumeWidthFrac float64 `yaml:"plumeWidthFrac"`
+	// NozzleLenFrac is a nozzle's length (plume base → hull) as a fraction of the ship
+	// length; NozzleFlare is its wide (hull) half-width as a multiple of its narrow (plume)
+	// half-width.
+	NozzleLenFrac float64 `yaml:"nozzleLenFrac"`
+	NozzleFlare   float64 `yaml:"nozzleFlare"`
+	// MinGreebles/MaxGreebles bound the greeble count (a second layer of small detail shapes,
+	// scaled by ship size); GreebleSizeMin/GreebleSizeMax bound a greeble's size as a fraction
+	// of the ship height.
+	MinGreebles    int     `yaml:"minGreebles"`
+	MaxGreebles    int     `yaml:"maxGreebles"`
+	GreebleSizeMin float64 `yaml:"greebleSizeMin"`
+	GreebleSizeMax float64 `yaml:"greebleSizeMax"`
+	// Ambient is the shadow-side fill light for the hull's top-lit form shading.
+	Ambient float64 `yaml:"ambient"`
+	// SkyTopFrac/SkyBotFrac bound the sky band a ship centers within (fractions of the
+	// sky height from the top; the ship sits between SkyTopFrac and 1-SkyBotFrac).
+	SkyTopFrac float64 `yaml:"skyTopFrac"`
+	SkyBotFrac float64 `yaml:"skyBotFrac"`
 }
 
 // MistBase is the resolved, scene-wide ground-mist state the mountainranges.v0 element
@@ -352,7 +409,42 @@ func (d sceneDirectorV1) Direct(cfg config.Config, seed int64, timeOverride stri
 	// Derive the scene's independent bush color gradient on its own stream, so each bush
 	// can sample a base color from it. Independent stream → existing streams undisturbed.
 	g.BushGradient = buildBushGradient(deriveRng(seed, "bush-gradient"), g.Settings.Time)
+	// Copy the spaceships base into the globals. Purely additive — a fresh global the
+	// spaceships.v0 element reads on its own stream — so existing per-element streams and
+	// outputs are undisturbed.
+	g.Spaceships = resolveSpaceships(cfg.Spaceships)
 	return g
+}
+
+// resolveSpaceships copies the spaceships config into the scene-wide base the
+// spaceships.v0 element reads. Ships have no per-vantage variation today, so this is a
+// straight copy; keeping it a resolver step matches the other elements and leaves room
+// for vantage-dependent tuning later.
+func resolveSpaceships(sc config.SpaceshipsConfig) SpaceshipsBase {
+	return SpaceshipsBase{
+		CountMean:      sc.CountMean,
+		CountStd:       sc.CountStd,
+		CountMax:       sc.CountMax,
+		MinSizeFrac:    sc.MinSizeFrac,
+		MaxSizeFrac:    sc.MaxSizeFrac,
+		MinParts:       sc.MinParts,
+		MaxParts:       sc.MaxParts,
+		AspectMin:      sc.AspectMin,
+		AspectMax:      sc.AspectMax,
+		MinPlumes:      sc.MinPlumes,
+		MaxPlumes:      sc.MaxPlumes,
+		PlumeLenFrac:   sc.PlumeLenFrac,
+		PlumeWidthFrac: sc.PlumeWidthFrac,
+		NozzleLenFrac:  sc.NozzleLenFrac,
+		NozzleFlare:    sc.NozzleFlare,
+		MinGreebles:    sc.MinGreebles,
+		MaxGreebles:    sc.MaxGreebles,
+		GreebleSizeMin: sc.GreebleSizeMin,
+		GreebleSizeMax: sc.GreebleSizeMax,
+		Ambient:        sc.Ambient,
+		SkyTopFrac:     sc.SkyTopFrac,
+		SkyBotFrac:     sc.SkyBotFrac,
+	}
 }
 
 // resolveBushes turns the bushes config and the rolled height into the scene-wide base
