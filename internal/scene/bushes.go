@@ -74,9 +74,10 @@ const (
 
 // Generate resolves the scene's bushes into a single entity. It reads the resolved base
 // parameters from the globals (Context.Bushes), rolls a count for the vantage scaled by
-// area, and places each bush — rejecting anchors that fall in water, on the shore's beach,
-// or behind the nearest mountain range / under the mist (via Context.BushFloor) — varying its depth, size,
-// squash, angle, burial, gradient color position, and seeds around the base. All
+// width (see bushesReferenceWidth), and places each bush — rejecting anchors that fall in
+// water, on the shore's beach, or behind the nearest mountain range / under the mist (via
+// Context.BushFloor) — varying its depth, size, squash, angle, burial, gradient color
+// position, and seeds around the base. All
 // randomness is drawn here, in a fixed order, on the element stream; it draws nothing, so
 // identical globals (and the same bush floor) always yield an identical scene list. An
 // empty list means no bushes (zero-value globals, a failed chance roll, or no room).
@@ -138,7 +139,7 @@ func (r *Bushes) Generate(c *Context) (SceneList, error) {
 			// viewer in the low vantage.
 			if oc := c.Ocean; oc != nil && oc.present {
 				d := float64(ay-horizon) / float64(groundH)
-				if oc.elev(x, ay) <= oc.seaLevel+beachBandV1(d, clamp01(c.Perspective.ShorePersp)) {
+				if oc.elev(x, ay) <= oc.seaLevel+beachBandV1(d, c.Perspective.ShorePersp) {
 					continue
 				}
 			}
